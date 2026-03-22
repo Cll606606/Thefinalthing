@@ -1,0 +1,116 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <title>Choose Your Style</title>
+    <style>
+        /* Essential styles to match your screenshot */
+        body { font-family: 'Segoe UI', sans-serif; background: #0f0f0f; color: white; text-align: center; padding: 20px; }
+        .container { max-width: 400px; margin: auto; }
+        
+        .style-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 15px; margin: 20px 0; }
+        .style-card { 
+            background: rgba(255,255,255,0.05); 
+            padding: 20px; 
+            border-radius: 20px; 
+            border: 1px solid rgba(255,255,255,0.1);
+            cursor: pointer;
+            transition: 0.3s;
+        }
+        .style-card.active { border-color: #ff7aa2; background: rgba(255, 122, 162, 0.1); }
+        
+        .custom-input {
+            width: 100%;
+            padding: 15px;
+            margin: 10px 0 20px;
+            background: rgba(255,255,255,0.05);
+            border: 1px solid rgba(255,255,255,0.1);
+            border-radius: 15px;
+            color: white;
+            outline: none;
+        }
+        .custom-input:focus { border-color: #c084fc; }
+
+        .chips { display: flex; justify-content: center; gap: 10px; margin-bottom: 20px; }
+        .chip { 
+            padding: 10px 15px; 
+            background: rgba(255,255,255,0.05); 
+            border-radius: 20px; 
+            font-size: 13px; 
+            cursor: pointer;
+            border: 1px solid transparent;
+        }
+        .chip.active { background: rgba(255,122,162,0.2); border-color: #ff7aa2; color: #ff7aa2; }
+
+        .continue-btn {
+            width: 100%;
+            padding: 16px;
+            border-radius: 30px;
+            border: none;
+            background: linear-gradient(45deg, #ff7aa2, #c084fc);
+            color: white;
+            font-weight: bold;
+            font-size: 16px;
+            cursor: pointer;
+        }
+    </style>
+</head>
+<body>
+
+<div class="container">
+    <h1 style="font-size: 24px; margin-bottom: 5px;">Customize Your Look</h1>
+    <p style="opacity: 0.6; font-size: 14px; margin-bottom: 30px;">Choose a preset or describe your own</p>
+
+    <form action="/results" method="POST" id="styleForm">
+        <input type="hidden" name="face_data" value="{{ face_data }}">
+        <input type="hidden" name="style" id="selectedStyle" value="Natural Glow">
+        <input type="hidden" name="budget" id="selectedBudget" value="999">
+
+        <h3 style="text-align: left; font-size: 12px; opacity: 0.5; letter-spacing: 1px;">PRESET STYLES</h3>
+        <div class="style-grid">
+            <div class="style-card active" onclick="selectVibe(this, 'Natural Glow')">
+                <span style="font-size: 20px;">✨</span><br>Natural
+            </div>
+            <div class="style-card" onclick="selectVibe(this, 'Full Glam')">
+                <span style="font-size: 20px;">💄</span><br>Glam
+            </div>
+            <div class="style-card" onclick="selectVibe(this, 'Soft Glam')">
+                <span style="font-size: 20px;">🌸</span><br>Soft Glam
+            </div>
+            <div class="style-card" onclick="selectVibe(this, 'Editorial')">
+                <span style="font-size: 20px;">🎨</span><br>Editorial
+            </div>
+        </div>
+
+        <h3 style="text-align: left; font-size: 12px; opacity: 0.5; letter-spacing: 1px;">OR TYPE YOUR VIBE</h3>
+        <input type="text" name="custom_vibe" class="custom-input" placeholder="e.g. Latte Makeup, 90s Grunge...">
+
+        <h3 style="text-align: left; font-size: 12px; opacity: 0.5; letter-spacing: 1px; margin-bottom: 15px;">BUDGET</h3>
+        <div class="chips">
+            <div class="chip" onclick="setBudget(this, '30')">Under $30</div>
+            <div class="chip" onclick="setBudget(this, '60')">$30 - $60</div>
+            <div class="chip active" onclick="setBudget(this, '999')">No Limit</div>
+        </div>
+        
+        <input type="number" name="custom_budget" class="custom-input" placeholder="Enter specific amount ($)">
+
+        <button type="submit" class="continue-btn">Generate AI Tutorial</button>
+    </form>
+</div>
+
+<script>
+    function selectVibe(element, styleName) {
+        document.querySelectorAll('.style-card').forEach(card => card.classList.remove('active'));
+        element.classList.add('active');
+        document.getElementById('selectedStyle').value = styleName;
+    }
+
+    function setBudget(element, amount) {
+        document.querySelectorAll('.chip').forEach(c => c.classList.remove('active'));
+        element.classList.add('active');
+        document.getElementById('selectedBudget').value = amount;
+    }
+</script>
+
+</body>
+</html>

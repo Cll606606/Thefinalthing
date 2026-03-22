@@ -1,0 +1,152 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AI Beauty Scan</title>
+    <style>
+        * { margin:0; padding:0; box-sizing:border-box; }
+
+        body {
+            font-family: 'Segoe UI', sans-serif;
+            background: radial-gradient(circle at top, #2a0d16, #0f0f0f);
+            color: white;
+            text-align: center;
+            padding: 20px;
+            min-height: 100vh;
+        }
+
+        h1 { font-size: 36px; font-weight: 600; margin-top: 20px; }
+
+        .pink {
+            background: linear-gradient(45deg,#ff7aa2,#c084fc);
+            background-clip: text;
+            -webkit-background-clip: text;
+            color: transparent;
+            -webkit-text-fill-color: transparent;
+        }
+
+        .subtitle { opacity: 0.7; margin: 10px 0 20px; }
+
+        .steps {
+            display: flex;
+            justify-content: center;
+            gap: 20px;
+            margin-bottom: 25px;
+        }
+
+        .steps div { opacity: 0.4; font-size: 14px; }
+        .steps .active { opacity: 1; color: #ff7aa2; font-weight: bold; }
+
+        /* Camera UI */
+        .camera-box {
+            position: relative;
+            width: 280px;
+            aspect-ratio: 3 / 4;   
+            margin: 40px auto; /* Centered with more space */
+            border-radius: 25px;
+            overflow: hidden;
+            background: rgba(255,255,255,0.05);
+            box-shadow: 0 0 40px rgba(255, 100, 150, 0.2);
+            border: 2px solid rgba(255, 122, 162, 0.3);
+        }
+         
+        video { width: 100%; height: 100%; object-fit: cover; transform: scaleX(-1); }
+
+        .face-outline {
+            position: absolute;
+            top: 50%; left: 50%;
+            width: 70%; height: 75%;
+            transform: translate(-50%, -50%);
+            border: 2px dashed rgba(255,120,160,0.6);
+            border-radius: 50% / 60%;
+            pointer-events: none;
+        }
+
+        /* Main Action Button */
+        .capture-btn {
+            margin-top: 20px;
+            padding: 16px 50px;
+            border: none;
+            border-radius: 35px;
+            background: linear-gradient(45deg, #ff7aa2, #c084fc);
+            color: white;
+            font-size: 18px;
+            font-weight: bold;
+            cursor: pointer;
+            box-shadow: 0 4px 15px rgba(255, 122, 162, 0.4);
+            transition: transform 0.2s;
+        }
+
+        .capture-btn:active { transform: scale(0.95); }
+    </style>
+</head>
+
+<body>
+
+    <h1>Your Face, <span class="pink">Your Beauty</span></h1>
+    <p class="subtitle">Position your face in the frame.</p>
+
+    <div class="steps">
+        <div class="active">1 Scan</div>
+        <div>2 Style</div>
+        <div>3 Discover</div>
+    </div>
+
+    <div class="camera-box">
+        <video id="video" autoplay playsinline></video>
+        <div class="face-outline"></div>
+    </div>
+
+    <form id="form" method="POST" action="/select-style">
+        <input type="hidden" name="face_data" id="face_data">
+        <button type="button" class="capture-btn" onclick="capture(event)">Take a selfie</button>
+    </form>
+
+    <script>
+    const video = document.getElementById("video");
+
+    async function startCamera() {
+        try {
+            const devices = await navigator.mediaDevices.enumerateDevices();
+            const videoDevices = devices.filter(device => device.kind === 'videoinput');
+
+            // Force Mac camera if available to avoid Continuity Camera (iPhone)
+            const macCamera = videoDevices.find(device => 
+                device.label.toLowerCase().includes('facetime') || 
+                device.label.toLowerCase().includes('built-in')
+            );
+
+            const constraints = {
+                video: macCamera ? { deviceId: { exact: macCamera.deviceId } } : { facingMode: "user" }
+            };
+
+            const stream = await navigator.mediaDevices.getUserMedia(constraints);
+            video.srcObject = stream;
+            
+            video.onloadedmetadata = () => {
+                video.play();
+            };
+        } catch (err) {
+            console.error("Camera Error: ", err);
+            navigator.mediaDevices.getUserMedia({ video: true })
+                .then(s => video.srcObject = s);
+        }
+    }
+
+    startCamera();
+
+    function capture(e) {
+        e.preventDefault();
+        const canvas = document.createElement("canvas");
+        canvas.width = video.videoWidth;
+        canvas.height = video.videoHeight;
+        canvas.getContext("2d").drawImage(video, 0, 0);
+        
+        // Convert the photo to a string and send to the next page
+        document.getElementById("face_data").value = canvas.toDataURL("image/jpeg");
+        document.getElementById("form").submit();
+    }
+</script>
+</body>
+</html>

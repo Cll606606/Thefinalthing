@@ -1,0 +1,37 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Tutorials</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+
+<div class="container">
+    <div class="card">
+        <h2>{{ style }} Tutorials</h2>
+        <p>Budget: €{{ budget }}</p>
+
+        <h3>Videos</h3>
+        {% for t in tutorials %}
+            <p>
+                <a href="{{ t.link }}" target="_blank">{{ t.title }}</a>
+            </p>
+        {% endfor %}
+
+        <h3>Products</h3>
+
+        {% if has_results %}
+            <ul>
+            {% for p in products %}
+                <li>{{ p.name }} - €{{ p.price }}</li>
+            {% endfor %}
+            </ul>
+        {% else %}
+            <p>No products found in your budget.</p>
+        {% endif %}
+
+    </div>
+</div>
+
+</body>
+</html>
