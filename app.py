@@ -9,7 +9,7 @@ import json
 import os
 
 client = Groq(api_key="***REMOVED-GROQ-KEY***")
-# Mapping zones to MediaPipe Indices
+# Mapping zones to MediaPipe 
 FACE_ZONES = {
     "cheeks": [205, 425],
     "nose_tip": [1],
@@ -47,7 +47,7 @@ def create_face_map(image, landmarks, map_instructions):
             # Convert normalized MediaPipe coordinates to pixel coordinates
             center = (int(landmarks[idx].x * w), int(landmarks[idx].y * h))
             
-            # Draw glowing 'heat map' circles with a feathered effect
+            # Draw glowing 'heat map' circles 
             for r in range(40, 0, -5):
                 cv2.circle(overlay, center, r, color_bgr, -1)
                 base = cv2.addWeighted(overlay, 0.1, base, 0.9, 0)
@@ -61,15 +61,15 @@ app.secret_key = os.environ["SECRET_KEY"]  # REMOVED-HARDCODED-KEY
 
 mp_face_mesh = mp.solutions.face_mesh
 
-# -------------------------
+
 # Helper functions
-# -------------------------
+
 def to_px(lm, w, h):
     return np.array([lm.x * w, lm.y * h])
 
-# -------------------------
+
 # AI ANALYSIS
-# -------------------------
+
 def analyze_face(image):
     rgb = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
     h, w, _ = image.shape
