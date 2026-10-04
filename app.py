@@ -183,12 +183,17 @@ if _secure_cookies and os.environ.get("AESTRA_TRUST_PROXY", "1") == "1":
     app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_proto=1, x_host=1)
 
 if not os.environ.get("SECRET_KEY") and os.environ.get("RENDER"):
-    # Sonst legt jeder Container-Start einen neuen Zufallsschluessel an —
-    # alle Logins waeren beim Neustart sofort ungueltig.
+    # Das ist eine Warnung, kein Fehler: die App startet auch ohne sie.
+    # Ohne SECRET_KEY legt aber jeder Container-Start einen neuen
+    # Zufallsschluessel an — alle Logins waeren beim Neustart ungueltig,
+    # und das ist auf einem Free-Plan bei jedem Deploy der Fall.
     app.logger.warning(
-        "SECRET_KEY ist nicht gesetzt. Im Betrieb muss er als "
-        "Umgebungsvariable gesetzt werden, sonst wird der Login bei "
-        "jedem Neustart ungueltig."
+        "SECRET_KEY fehlt (nur eine Warnung, der Dienst startet). "
+        "Die App erzeugt dann pro Start einen neuen Zufallsschluessel, "
+        "wodurch alle Logins beim Neustart ungueltig werden. Abhilfe: "
+        "Environment -> Add Environment Variable -> SECRET_KEY. "
+        "Wert erzeugen mit: python3 -c \"import secrets;"
+        "print(secrets.token_hex(32))\" — und nicht hier eintragen."
     )
 
 # ------------------------------------------------------------
