@@ -2,6 +2,7 @@ import base64
 import io
 import json
 import os
+import sys
 import re
 import secrets
 import socket
@@ -12,8 +13,8 @@ from functools import wraps
 from urllib.parse import urlparse
 
 import requests
-from flask import (Flask, jsonify, redirect, render_template, request,
-                   send_from_directory, session, url_for)
+from flask import (Flask, Response, jsonify, redirect, render_template,
+                   request, send_from_directory, session, url_for)
 from werkzeug.security import check_password_hash, generate_password_hash
 
 from PIL import Image
@@ -52,11 +53,42 @@ BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 # Dateisystem meist in einem fluechtigen Container — dort zeigt
 # DATABASE_PATH auf einen persistenten Plattenlauf, sonst waeren
 # Kleiderschrank und Profil nach jedem Neustart leer.
-DB_PATH = os.environ.get("DATABASE_PATH") or os.path.join(BASE_DIR, "styleai.db")
-try:
-    os.makedirs(os.path.dirname(DB_PATH), exist_ok=True)
-except OSError:
-    pass
+def _resolve_db_path():
+    """Wo die SQLite-Datei liegen soll — mit Rueckfalloption.
+
+    Das ist wichtig fuer den Betrieb: render.yaml setzt DATABASE_PATH auf
+    /data/styleai.db, weil dort auf bezahlten Plaenen der Plattenlauf
+    haengt. Im kostenlosen Plan gibt es keinen Plattenlauf, und /data
+    laesst sich dort auch nicht anlegen (keine Schreibrechte im
+    Dateisystem-Wurzelverzeichnis). Ohne diese Rueckfalloption wuerde
+    sqlite3.connect() beim Start scheitern und die App in einer
+    Neustartschleife hängen bleiben.
+    """
+    wanted = os.environ.get("DATABASE_PATH") or os.path.join(BASE_DIR, "styleai.db")
+
+    def usable(path):
+        folder = os.path.dirname(path) or "."
+        try:
+            os.makedirs(folder, exist_ok=True)
+            probe = os.path.join(folder, ".write_test")
+            with open(probe, "w"):
+                pass
+            os.remove(probe)
+            return True
+        except OSError:
+            return False
+
+    if usable(wanted):
+        return wanted
+
+    fallback = os.path.join(BASE_DIR, "styleai.db")
+    print(f"  ⚠️  {os.path.dirname(wanted)} ist nicht beschreibbar — "
+          f"SQLite wandert nach {fallback}. Auf einem Plattenlauf bleiben "
+          f"die Daten erhalten, sonst nicht.", file=sys.stderr)
+    return fallback
+
+
+DB_PATH = _resolve_db_path()
 
 app = Flask(__name__)
 app.config["MAX_CONTENT_LENGTH"] = 64 * 1024 * 1024  # allow big image payloads
@@ -460,10 +492,65 @@ def login_page():
     return render_template("login.html")
 
 
+def base_url():
+    """Absolute Adresse fuer Canonical-Tags, Sitemap und Open Graph.
+
+    Ohne PUBLIC_BASE_URL nehmen wir die tatsaechliche Anfrage — das
+    funktioniert im Betrieb, ergibt aber lokal "http://localhost:5001".
+    """
+    configured = os.environ.get("PUBLIC_BASE_URL", "").rstrip("/")
+    if configured:
+        return configured
+    return request.url_root.rstrip("/")
+
+
 @app.route("/")
-@login_required
-def index_page():
-    return render_template("hub.html")
+def landing_page():
+    """Ohne Login steht hier die oeffentliche Seite, mit Login der Studio-Hub.
+
+    Warum getrennt: alle vier App-Seiten liegen hinter der Anmeldung und
+    sind fuer Suchmaschinen unsichtbar. Ohne diese oeffentliche Seite
+    waere die App im Netz nicht auffindbar.
+    """
+    if session.get("uid"):
+        return render_template("hub.html")
+    return render_template("landing.html", base_url=base_url())
+
+
+@app.route("/robots.txt")
+def robots_txt():
+    """Nur die oeffentliche Seite zum Indexieren anmelden. Die vier
+    App-Seiten bleiben draussen — sie sind ohnehin nur mit Login erreichbar."""
+    body = (
+        "User-agent: *\n"
+        "Allow: /\n"
+        # /login und /app gehoeren nicht in den Index
+        "Disallow: /login\n"
+        "Disallow: /beauty\n"
+        "Disallow: /wardrobe\n"
+        "Disallow: /settings\n"
+        "Disallow: /api/\n"
+        "\n"
+        f"Sitemap: {base_url()}/sitemap.xml\n"
+    )
+    return Response(body, mimetype="text/plain")
+
+
+@app.route("/sitemap.xml")
+def sitemap_xml():
+    """Nur die oeffentliche Seite — die App-Seiten sind nicht oeffentlich."""
+    root = base_url()
+    today = datetime.now().strftime("%Y-%m-%d")
+    xml = (
+        '<?xml version="1.0" encoding="UTF-8"?>\n'
+        '<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n'
+        f"  <url>\n    <loc>{root}/</loc>\n"
+        f"    <lastmod>{today}</lastmod>\n"
+        "    <changefreq>monthly</changefreq>\n"
+        "    <priority>1.0</priority>\n  </url>\n"
+        "</urlset>\n"
+    )
+    return Response(xml, mimetype="application/xml")
 
 
 @app.route("/beauty")

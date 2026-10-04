@@ -6,7 +6,12 @@ services:
   - type: web
     name: my-style
     runtime: python
-    plan: free          # auf "starter" wechseln, wenn ein Plattenlauf noetig ist
+    # TESTWEG: kostenlos. Render haengt Plattenlaeufe ausschliesslich an
+    # bezahlte Instanzen — auf "free" ist die SQLite-Datei nach jedem
+    # Neustart weg. Fuer den Dauerbetrieb spaeter zwei Aenderungen:
+    #   1) plan: starter
+    #   2) den Block "disk:" unten aktivieren
+    plan: free
     region: frankfurt   # eu-central, nah bei dir
     branch: main
     buildCommand: pip install -r requirements.txt
@@ -28,13 +33,20 @@ services:
         value: "0.0.0.0"
       - key: FORCE_SECURE_COOKIES
         value: "1"
+      # Ohne Plattenlauf (free) ist dieser Pfad nur ein Wunsch: die App
+      # legt ihn an, kann dort aber nichts dauerhaft halten.
       - key: DATABASE_PATH
         value: /data/styleai.db
-      # >>> HIER MANUELL EINFUEGEN (sync: false) <<<
-      # - key: GEMINI_API_KEY
-      # - key: SERPER_API_KEY
+      # Beide Schluessel NICHT hier eintragen — Render wuerde sie dann
+      # im Klartext im YAML speichern. Stattdessen die Zeilen aktivieren
+      # und die Werte im Dashboard eintragen (sync: false = Secret).
+      - key: GEMINI_API_KEY
+        sync: false
+      - key: SERPER_API_KEY
+        sync: false
 
-    disk:
-      name: my-style-data
-      mountPath: /data
-      sizeGB: 1
+    # >>> FUER DEN DAUERBETRIEB AKTIVIEREN (nur mit plan: starter) <<<
+    # disk:
+    #   name: my-style-data
+    #   mountPath: /data
+    #   sizeGB: 1

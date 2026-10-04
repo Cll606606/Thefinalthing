@@ -1,0 +1,210 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+
+    <title>Aestra · Private Face Analysis, Wardrobe &amp; Makeup Studio</title>
+    <meta name="description" content="Aestra analyses your face shape in your browser, keeps every photo on your own server, and builds outfits and makeup looks from it. No cloud storage, no third-party tracking.">
+    <link rel="canonical" href="{{ base_url }}{{ url_for('landing_page') }}">
+
+    <!-- Diese Seite ist die einzige oeffentliche. Sie darf indexiert werden. -->
+    <meta name="robots" content="index, follow, max-image-preview:large">
+    <meta name="theme-color" content="#0a0a0f">
+
+    <!-- Vorschaubild in WhatsApp, iMessage, Slack und an social feeds -->
+    <meta property="og:type" content="website">
+    <meta property="og:site_name" content="Aestra">
+    <meta property="og:title" content="Aestra · Private Face Analysis &amp; Wardrobe Studio">
+    <meta property="og:description" content="Face shape, outfits and makeup — analysed in your browser, stored on your own server.">
+    <meta property="og:url" content="{{ base_url }}{{ url_for('landing_page') }}">
+    <meta property="og:image" content="{{ base_url }}{{ url_for('static', filename='icons/icon-512.png') }}">
+    <meta name="twitter:card" content="summary">
+
+    <link rel="icon" href="{{ url_for('static', filename='favicon.png') }}">
+    <link rel="apple-touch-icon" href="{{ url_for('static', filename='icons/apple-touch-icon.png') }}">
+    <link rel="manifest" href="{{ url_for('static', filename='manifest.json') }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/base.css') }}">
+
+    <!-- strukturierte Daten: hilft Google, die Seite als Webanwendung zu lesen -->
+    <script type="application/ld+json">
+    {
+      "@context": "https://schema.org",
+      "@type": "WebApplication",
+      "name": "Aestra",
+      "description": "Private face analysis with wardrobe and makeup styling. Runs in the browser, stores data on your own server.",
+      "applicationCategory": "LifestyleApplication",
+      "operatingSystem": "Any",
+      "url": "{{ base_url }}{{ url_for('landing_page') }}",
+      "offers": { "@type": "Offer", "price": "0", "priceCurrency": "EUR" },
+      "featureList": [
+        "Face shape and eye analysis in the browser",
+        "Weather-aware outfit recommendations",
+        "Capsule wardrobe planner",
+        "Personal makeup guidance"
+      ]
+    }
+    </script>
+
+    <style>
+        /* Nur diese Seite hat eigenes CSS — die App-Seiten teilen sich base.css. */
+        .wrap { max-width: 940px; margin: 0 auto; padding: 0 20px; }
+
+        header.hero {
+            text-align: center;
+            padding: 72px 0 44px;
+            border-bottom: 1px solid var(--border);
+        }
+        header.hero h1 {
+            font-size: clamp(30px, 6vw, 46px);
+            letter-spacing: -1.2px;
+            margin-bottom: 14px;
+        }
+        header.hero .sub {
+            color: var(--muted);
+            font-size: 17px;
+            line-height: 1.65;
+            max-width: 620px;
+            margin: 0 auto 30px;
+        }
+        .eyebrow {
+            font-size: 11px;
+            text-transform: uppercase;
+            letter-spacing: 2.5px;
+            color: var(--primary);
+            margin-bottom: 16px;
+        }
+        .cta-row {
+            display: flex;
+            gap: 12px;
+            justify-content: center;
+            flex-wrap: wrap;
+        }
+        .cta-row .btn { padding: 15px 30px; font-size: 15px; text-decoration: none; display: inline-block; }
+
+        section { padding: 60px 0; border-bottom: 1px solid var(--border); }
+        section h2 {
+            font-size: 13px;
+            text-transform: uppercase;
+            letter-spacing: 2.5px;
+            color: var(--muted);
+            margin-bottom: 30px;
+            text-align: center;
+        }
+
+        .grid { display: grid; gap: 16px; grid-template-columns: repeat(auto-fit, minmax(230px, 1fr)); }
+        .feature { padding: 24px 22px; border: 1px solid var(--border); border-radius: var(--radius); background: var(--bg-soft); }
+        .feature .num {
+            font-size: 11px; letter-spacing: 2px; color: var(--primary);
+            text-transform: uppercase; margin-bottom: 12px;
+        }
+        .feature h3 { font-size: 17px; margin-bottom: 9px; letter-spacing: -.2px; }
+        .feature p { color: var(--muted); font-size: 14px; line-height: 1.65; }
+
+        .privacy { display: grid; gap: 16px; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); }
+        .privacy div { padding: 20px; border-left: 2px solid var(--primary); background: var(--bg-soft); border-radius: 0 var(--radius) var(--radius) 0; }
+        .privacy strong { display: block; margin-bottom: 7px; font-size: 15px; }
+        .privacy span { color: var(--muted); font-size: 14px; line-height: 1.6; }
+
+        footer { text-align: center; padding: 40px 0 56px; color: var(--muted); font-size: 13px; }
+        footer a { color: var(--primary); text-decoration: none; }
+
+        .badge {
+            display: inline-block; margin-top: 22px; padding: 7px 15px;
+            border: 1px solid var(--border); border-radius: 999px;
+            font-size: 12px; color: var(--muted);
+        }
+    </style>
+</head>
+<body>
+
+<div class="wrap">
+
+    <header class="hero">
+        <div class="eyebrow">Private Face Intelligence</div>
+        <h1>Know your face.<br>Then dress for it.</h1>
+        <p class="sub">
+            Aestra measures your face shape and eyes directly in your browser, then builds
+            outfits, a capsule wardrobe and makeup guidance around what it actually finds —
+            including the weather where you are.
+        </p>
+        <div class="cta-row">
+            <a class="btn" href="{{ url_for('login_page') }}">Open the studio</a>
+            <a class="btn btn-ghost" href="#privacy">How your data is handled</a>
+        </div>
+        <div class="badge">No account on a third-party platform · Works offline once installed</div>
+    </header>
+
+    <section>
+        <h2>What it does</h2>
+        <div class="grid">
+            <div class="feature">
+                <div class="num">01 · Face</div>
+                <h3>Face &amp; eye analysis</h3>
+                <p>
+                    MediaPipe measures 468 landmarks in the browser and derives face shape,
+                    eye shape and the distances that decide which cuts suit you.
+                    The camera image never leaves your device.
+                </p>
+            </div>
+            <div class="feature">
+                <div class="num">02 · Wardrobe</div>
+                <h3>Outfits that fit</h3>
+                <p>
+                    Combines your measurements with the current temperature and weather,
+                    then suggests an outfit — collar, sleeve and length chosen for your
+                    proportions, not for a trend.
+                </p>
+            </div>
+            <div class="feature">
+                <div class="num">03 · Capsule</div>
+                <h3>Climate capsule</h3>
+                <p>
+                    Reads the climate normals for your coordinates and builds a twelve-month
+                    capsule: what the year actually demands where you live.
+                </p>
+            </div>
+            <div class="feature">
+                <div class="num">04 · Beauty</div>
+                <h3>Makeup guidance</h3>
+                <p>
+                    Contour, blush and lip placement derived from your bone structure, so the
+                    advice follows your face instead of a generic rule of thumb.
+                </p>
+            </div>
+        </div>
+    </section>
+
+    <section id="privacy">
+        <h2>Where your data stays</h2>
+        <div class="privacy">
+            <div>
+                <strong>Photos are processed locally</strong>
+                <span>Face measurement runs in your browser. Nothing is uploaded to analyse it.</span>
+            </div>
+            <div>
+                <strong>Accounts stay on one server</strong>
+                <span>Your profile, wardrobe and settings live in a single database on the app's own host. No third-party profile exists.</span>
+            </div>
+            <div>
+                <strong>No tracking, no ads</strong>
+                <span>No analytics scripts, no advertising identifiers, no cookies beyond your own session.</span>
+            </div>
+            <div>
+                <strong>AI without training data</strong>
+                <span>Language and image requests are sent without your account data, and nothing is used for training.</span>
+            </div>
+        </div>
+    </section>
+
+    <footer>
+        <p>Aestra · face analysis, wardrobe and makeup in one private studio.</p>
+        <p style="margin-top:10px;">
+            <a href="{{ url_for('login_page') }}">Sign in</a>
+        </p>
+    </footer>
+
+</div>
+
+</body>
+</html>
