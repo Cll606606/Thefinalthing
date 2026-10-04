@@ -11,7 +11,7 @@
      Gesichtsanalyse im Offline-Modus sofort scheitern.
    ============================================================ */
 
-const VERSION = 'v1';
+const VERSION = '__BUILD__';   // wird beim Bauen durch stamp_sw.py ersetzt
 const SHELL_CACHE = `styleai-shell-${VERSION}`;
 const CDN_CACHE = `styleai-cdn-${VERSION}`;
 const MAX_CDN = 40;
@@ -135,7 +135,32 @@ self.addEventListener('fetch', (event) => {
         return;
     }
 
-    /* 5) Statische Dateien: Cache-First. */
+    /* 5) Eigenes JavaScript und CSS: Netz zuerst, Cache als Rueckfall.
+          Cache-First ist bei Dateien ohne Versionshash falsch: nach einem
+          Deploy liefert der Cache die alte Datei aus, bis sie jemand von
+          Hand loescht. Genau das ist passiert — eine bereits korrigierte
+          Fehlermeldung kam bei den Nutzern nicht an, weil der Browser
+          weiter die alte Datei aus dem Cache lud. "no-cache" zwingt den
+          Browser zur Pruefung beim Server; bei unveraenderter Datei
+          antwortet der mit 304, das ist billig. */
+    if (url.origin === self.location.origin &&
+        (url.pathname.endsWith('.js') || url.pathname.endsWith('.css'))) {
+        event.respondWith(
+            fetch(req, { cache: 'no-cache' }).then((res) => {
+                if (res && res.ok) {
+                    const copy = res.clone();
+                    caches.open(SHELL_CACHE).then((c) => c.put(req, copy));
+                }
+                return res;
+            }).catch(async () => {
+                const cached = await caches.match(req);
+                return cached || new Response('', { status: 504 });
+            })
+        );
+        return;
+    }
+
+    /* 6) Uebrige statische Dateien (Icons, Bilder): Cache-First. */
     if (url.origin === self.location.origin) {
         event.respondWith(
             caches.match(req).then((hit) => {

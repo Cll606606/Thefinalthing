@@ -14,7 +14,10 @@ services:
     plan: free
     region: frankfurt   # eu-central, nah bei dir
     branch: main
-    buildCommand: pip install -r requirements.txt
+    # stamp_sw.py setzt die Cache-Version des Service Workers auf den
+    # Commit. Ohne das liefert der Service Worker nach einem Deploy
+    # weiter die alten JavaScript-Dateien aus.
+    buildCommand: python stamp_sw.py && pip install -r requirements.txt
     startCommand: gunicorn app:app --bind 0.0.0.0:$PORT --workers 2 --threads 4 --timeout 120 --access-logfile - --error-logfile -
     healthCheckPath: /healthz
 

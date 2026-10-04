@@ -20,6 +20,9 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 COPY . .
 
+# Cache-Version des Service Workers an diesen Build binden
+RUN python stamp_sw.py
+
 # Datenbank der Standardablage in /data legen — dort kann ein
 # persistenter Plattenlauf gemountet werden.
 RUN mkdir -p /data
