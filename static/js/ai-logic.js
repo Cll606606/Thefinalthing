@@ -55,7 +55,11 @@ async function serverJson(prompt, retries = 2) {
             }
             const obj = await res.json();
             if (obj.key_missing) {
-                throw new Error('The server has no AI key set up. For the cloud AI, create a .env file with GEMINI_API_KEY=your_key and restart the server.');
+                /* Die Meldung kommt vom Server, weil nur er weiss, wo er
+                   laeuft: lokal hilft eine .env-Datei, auf Render nur die
+                   Variable im Dashboard. */
+                throw new Error(obj.error || obj.message ||
+                    'The server has no AI key set up.');
             }
             if (!obj.ok || !obj.data) throw new Error(obj.error || 'Cloud AI failed.');
             return obj.data;

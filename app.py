@@ -122,6 +122,11 @@ app.secret_key = _secret_key()
 # Set it either as an environment variable or in a local .env file
 # (GEMINI_API_KEY=your_key_here) so it is NOT committed to git.
 GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY", "")
+# Der Schluessel gehoert hier NICHT hin. Ein Schluessel als Standardwert
+# im Code landet beim naechsten git add -A im Repository — genau das ist
+# passiert, und GitHub hat den Push deshalb blockiert. Richtig sind:
+#   lokal:  Zeile GEMINI_API_KEY=... in der .env (steht in .gitignore)
+#   online: Environment Variable im Dashboard des Anbieters
 # WICHTIG: Der Modellname muss exakt zu einem Modell passen, das der Key
 # tatsaechlich nutzen darf. "gemini-3.6-flash" existiert nicht (404/503),
 # und aeltere Modelle wie gemini-2.5-flash sind fuer neue Keys gesperrt
@@ -1136,6 +1141,25 @@ def _gemini_text_json(prompt):
     return json.loads(match.group(0))
 
 
+def _key_missing_message():
+    """Passender Hinweis, wenn GEMINI_API_KEY fehlt.
+
+    Auf einem Hosting-Anbieter kann man keine .env-Datei anlegen — die
+    Anleitung davor hat dort nie geholfen und den Nutzer raten lassen.
+    Deshalb wird der Hinweis am Ort der Bereitstellung unterschieden.
+    """
+    if os.environ.get("RENDER"):
+        return ("This deployment has no GEMINI_API_KEY. Add it under "
+                "Environment in the dashboard, then the service restarts "
+                "automatically. No .env file is needed here.")
+    if os.environ.get("PORT") or os.environ.get("DYNO"):
+        return ("This deployment has no GEMINI_API_KEY. Add it as an "
+                "environment variable in the hosting dashboard, then "
+                "restart the service.")
+    return ("No GEMINI_API_KEY configured. Add GEMINI_API_KEY=your_key to "
+            "the .env file and restart the server.")
+
+
 def _gemini_text_raw(prompt, max_tokens=8000):
     """Plain-text Gemini call (no JSON constraint) for free-form answers."""
     payload = {
@@ -1169,7 +1193,7 @@ def api_text_ai():
             "ok": False,
             "error": "no_key",
             "key_missing": True,
-            "message": "Server has no GEMINI_API_KEY configured yet. Create a .env with GEMINI_API_KEY=your_key to enable cloud AI, or use the in-browser AI."
+            "message": _key_missing_message()
         }), 200
 
     import time
@@ -1217,7 +1241,7 @@ def describe_clothing():
         return jsonify({
             "ok": False,
             "key_missing": True,
-            "error": "Server has no GEMINI_API_KEY configured yet."
+            "error": _key_missing_message()
         }), 200
 
     try:
