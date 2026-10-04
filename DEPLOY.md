@@ -26,27 +26,45 @@ python3 -c "import secrets; print(secrets.token_hex(32))"
 
 ---
 
-## 2. Render.com (empfohlen)
+## 2. Render.com — kostenloser Testweg
 
-1. Repository bei [github.com/Cll606606/Thefinalthing](https://github.com/Cll606606/Thefinalthing) (ist bereits vorhanden).
-2. Render → **New +** → **Blueprint** → Repository wählen. Render liest `render.yaml`.
-3. Nach dem ersten Deploy unter **Environment** eintragen:
-   - `GEMINI_API_KEY`
-   - `SERPER_API_KEY` (optional)
-4. Fertig. Die URL steht oben im Render-Dashboard.
+`render.yaml` ist auf den kostenlosen Plan eingestellt.
 
-### Wichtig: die Datenbank
+1. Konto bei [render.com](https://render.com) anlegen.
+2. **New +** → **Blueprint** → das Repository
+   [Cll606606/Thefinalthing](https://github.com/Cll606606/Thefinalthing) wählen.
+   Render liest `render.yaml` und trägt alles selbst ein.
+3. Render fragt nach den beiden API-Schlüsseln — dort die eigenen Werte
+   eintragen (sie erscheinen als *Secret*, nicht im Klartext).
+4. Nach dem Build steht die URL im Dashboard, etwa
+   `https://my-style.onrender.com`.
 
-`render.yaml` enthält einen 1-GB-Plattenlauf (`my-style-data`, gemountet auf
-`/data`). **Plattenläufe gibt es nur in bezahlten Plänen.** Auf dem kostenlosen
-Plan startet die App, aber alle Konten, Outfits und Messungen gehen bei jedem
-Neustart verloren — SQLite lebt dann nur im Container-Dateisystem.
+### Was der kostenlose Plan bedeutet
 
-Für echte Nutzung also ein bezahlter Plan nötig. Alternative ohne Bezahlung:
-PostgreSQL (z. B. Render Free) — das setzt aber eine Umstellung von SQLite auf
-`psycopg` voraus, also mehr Arbeit als ein Plattenlauf.
+| | |
+|---|---|
+| Preis | 0 € |
+| App erreichbar | ja |
+| `fastuser` und eigene Konten | **nach jedem Neustart weg** |
+| Kamera, Wetter, KI | vollständig funktionsfähig |
 
----
+Die SQLite-Datei liegt im Container-Dateisystem. Render fährt die Instanz
+nach Inaktivität herunter und löscht sie beim nächsten Build — die Daten
+sind dann weg. Das ist der einzige Unterschied zum bezahlten Betrieb.
+
+Fällt `/data` nicht anlegbar aus, weicht die App automatisch auf einen
+beschreibbaren Pfad aus und startet trotzdem (`_resolve_db_path()`).
+
+### Später auf Dauerbetrieb umstellen
+
+Erst wenn der Test überzeugt:
+
+1. `plan: starter` in `render.yaml` — nur dafür sind Plattenläufe erlaubt.
+2. Den Block `disk:` unten in `render.yaml` auskommentieren.
+3. Neu deployen. Render hängt den Plattenlauf ein, die Daten bleiben
+   danach erhalten.
+
+Kosten: Starter-Instanz (etwa 7 $/Monat) + 1 GB Platte (0,25 $/Monat).
 
 ## 3. Andere Anbieter
 
