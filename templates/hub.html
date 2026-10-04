@@ -1,0 +1,141 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+    <title>Aestra · Studio Hub</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/base.css') }}">
+    <script src="{{ url_for('static', filename='js/i18n.js') }}"></script>
+    <!-- Seiten-eigenes CSS: die großen Lab-Karten gibt es nur hier -->
+    <style>
+        .hero { text-align: center; padding: 34px 12px 12px; }
+        .hero h1 { font-size: 30px; letter-spacing: -.6px; }
+        .hero p { color: var(--muted); margin-top: 8px; font-size: 15px; }
+
+        .lab-grid {
+            display: grid;
+            gap: 18px;
+            margin-top: 34px;
+        }
+
+        .lab-card {
+            position: relative;
+            padding: 26px 24px;
+            border-radius: 22px;
+            border: 1px solid var(--border);
+            background: linear-gradient(150deg, var(--bg-soft), var(--card));
+            cursor: pointer;
+            overflow: hidden;
+            transition: transform .2s ease, border-color .2s ease;
+        }
+        .lab-card:hover { transform: translateY(-3px); border-color: var(--primary); }
+
+        /* Jede Karte trägt eine dezente Farb-Signatur */
+        .lab-card.beauty { box-shadow: inset 0 1px 0 rgba(20, 184, 166, .18); }
+        .lab-card.style { box-shadow: inset 0 1px 0 rgba(94, 242, 195, .12); }
+
+        .lab-icon { font-size: 40px; margin-bottom: 12px; }
+        .lab-card h2 { font-size: 20px; }
+        .lab-card p { color: var(--muted); font-size: 14px; line-height: 1.6; margin: 8px 0 18px; }
+
+        .lab-link {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            font-weight: 800;
+            font-size: 14px;
+            letter-spacing: .4px;
+            text-transform: uppercase;
+        }
+        .lab-card.beauty .lab-link { color: var(--primary); }
+        .lab-card.style .lab-link { color: var(--accent); }
+
+        @media (min-width: 760px) {
+            .lab-grid { grid-template-columns: 1fr 1fr; margin-top: 44px; }
+            .lab-card { padding: 32px 28px; }
+        }
+    </style>
+    <!-- PWA -->
+    <link rel="manifest" href="/manifest.json">
+    <meta name="theme-color" content="#000000">
+    <link rel="icon" type="image/png" sizes="32x32" href="{{ url_for('static', filename='favicon.png') }}">
+    <link rel="icon" type="image/svg+xml" href="{{ url_for('static', filename='icons/logo.svg') }}">
+    <link rel="apple-touch-icon" href="{{ url_for('static', filename='icons/apple-touch-icon.png') }}">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <meta name="apple-mobile-web-app-title" content="My Style">
+</head>
+<body data-page="home">
+
+    <header class="topbar">
+        <a href="/" class="topbar-brand" style="text-decoration:none;">Aestra</a>
+        <nav class="desktop-nav">
+            <a href="/" data-page="home" class="active" data-i18n="nav.home">Home</a>
+            <a href="/wardrobe" data-page="wardrobe" data-i18n="nav.style">Style Lab</a>
+            <a href="/beauty" data-page="beauty" data-i18n="nav.beauty">Beauty Lab</a>
+            <a href="/settings" data-page="settings" data-i18n="nav.settings">Settings</a>
+        </nav>
+        <div class="topbar-right">
+            <button class="icon-btn" onclick="location.href='/settings'" title="Settings">⚙️</button>
+            <button class="icon-btn" onclick="logOut(event)" title="Log out">⎋</button>
+        </div>
+    </header>
+
+    <main class="page" style="text-align:center;">
+        <div class="hero">
+            <h1>Hi <span id="hi-name" class="brand-glow">there</span> 👋</h1>
+            <p data-i18n="hub.helloSub">What can I help you style today?</p>
+        </div>
+
+        <div class="lab-grid">
+            <div class="lab-card beauty" onclick="location.href='/beauty'">
+                <div class="lab-icon">✨</div>
+                <h2 data-i18n="hub.lab.beauty.title">Beauty Lab</h2>
+                <p data-i18n="hub.lab.beauty.desc">Face mapping for custom makeup tutorials and product matches based on your unique features.</p>
+                <span class="lab-link" data-i18n="hub.lab.beauty.link">Open Scanner →</span>
+            </div>
+
+            <div class="lab-card style" onclick="location.href='/wardrobe'">
+                <div class="lab-icon">👗</div>
+                <h2 data-i18n="hub.lab.style.title">Style Lab</h2>
+                <p data-i18n="hub.lab.style.desc">Your digital wardrobe with AI outfit building, shopping and a travel capsule checklist.</p>
+                <span class="lab-link" data-i18n="hub.lab.style.link">Manage Closet →</span>
+            </div>
+        </div>
+
+        <!-- PWA: erscheint nur, wenn der Browser die Installation anbietet -->
+        <div style="display:flex; justify-content:center; margin-top:26px;">
+            <button class="chip-alt wide" id="pwa-install-btn" type="button"
+                style="display:none; width:auto; padding:14px 26px;"
+                data-i18n="pwa.install">📲 Install as app</button>
+        </div>
+        <p style="text-align:center; margin-top:10px; font-size:12px; color:var(--muted);"
+           data-i18n="pwa.hint">Runs from your home screen like a normal app — no app store needed.</p>
+    </main>
+
+    <!-- Unten-Navigation am Handy -->
+    <nav class="bottom-nav">
+        <a href="/" class="nav-item" data-page="home"><span>🏠</span> <span data-i18n="nav.home">Home</span></a>
+        <a href="/wardrobe" class="nav-item" data-page="wardrobe"><span>👗</span> <span data-i18n="nav.style">Style Lab</span></a>
+        <a href="/beauty" class="nav-item" data-page="beauty"><span>✨</span> <span data-i18n="nav.beauty">Beauty Lab</span></a>
+        <a href="/settings" class="nav-item" data-page="settings"><span>⚙️</span> <span data-i18n="nav.settings">Settings</span></a>
+    </nav>
+
+    <script src="{{ url_for('static', filename='js/app-ui.js') }}"></script>
+    <script>
+        // Einmal den echten Namen holen und freundlich begrüßen.
+        fetch('/api/me')
+            .then(r => r.json())
+            .then(d => {
+                if (d.ok) {
+                    const name = d.username || 'there';
+                    document.getElementById('hi-name').textContent = name;
+                }
+            })
+            .catch(() => {});
+        markNavActive('home');
+    </script>
+    <script src="{{ url_for('static', filename='js/pwa.js') }}" defer></script>
+</body>
+</html>

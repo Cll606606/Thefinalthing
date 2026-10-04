@@ -1,0 +1,460 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Aestra · Beauty Lab</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+
+    <!-- Styles: erst das gemeinsame Design-System (Top-Bar, Nav, Buttons),
+         dann die Beauty-spezifischen Komponenten -->
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/base.css') }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+    <script src="{{ url_for('static', filename='js/i18n.js') }}"></script>
+
+    <!-- MediaPipe -->
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils"></script>
+    <!-- PWA -->
+    <link rel="manifest" href="/manifest.json">
+    <meta name="theme-color" content="#000000">
+    <link rel="icon" type="image/png" sizes="32x32" href="{{ url_for('static', filename='favicon.png') }}">
+    <link rel="icon" type="image/svg+xml" href="{{ url_for('static', filename='icons/logo.svg') }}">
+    <link rel="apple-touch-icon" href="{{ url_for('static', filename='icons/apple-touch-icon.png') }}">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <meta name="apple-mobile-web-app-title" content="My Style">
+</head>
+
+<body data-page="beauty">
+
+    <!-- Dieselbe Top-Bar wie auf allen anderen Seiten: Markenname links,
+         Desktop-Navigation rechts, Abmelden rechts außen. -->
+    <header class="topbar">
+        <a href="/" class="topbar-brand" style="text-decoration:none;">Aestra</a>
+        <nav class="desktop-nav">
+            <a href="/" data-page="home" data-i18n="nav.home">Home</a>
+            <a href="/wardrobe" data-page="wardrobe" data-i18n="nav.style">Style Lab</a>
+            <a href="/beauty" data-page="beauty" class="active" data-i18n="nav.beauty">Beauty Lab</a>
+            <a href="/settings" data-page="settings" data-i18n="nav.settings">Settings</a>
+        </nav>
+        <div class="topbar-right">
+            <button class="icon-btn" onclick="location.href='/settings'" title="Settings">⚙️</button>
+            <button class="icon-btn" onclick="logOut(event)" title="Log out">⎋</button>
+        </div>
+    </header>
+
+    <!-- Lade-Overlay, während die KI gerade arbeitet -->
+    <div id="loading-overlay" style="
+        display:none;
+        position:fixed;
+        top:0; left:0;
+        width:100%; height:100%;
+        background:black;
+        z-index:9999;
+        justify-content:center;
+        align-items:center;
+        flex-direction:column;
+        color:white;
+    ">
+        <h2 class="brand-glow" data-i18n="l.analyzing">Analyzing your features...</h2>
+        <p id="loading-status" data-i18n="l.analyzing">Loading...</p>
+        <button class="chip-alt" id="ai-stop-btn" onclick="stopAi()"
+            style="display:none; margin-top:20px; background:#3a1616; border-color:#b91c1c; color:#fca5a5;">
+            <span data-i18n="l.stop">⏹ Stop AI</span>
+        </button>
+    </div>
+
+    <!-- STEP 1: SCAN -->
+    <div id="step-scan" class="screen active">
+        <h1 data-i18n="beauty.scanTitle">Face <span class="brand-glow">Scanner</span></h1>
+
+        <div class="video-wrap">
+            <video id="video" autoplay playsinline></video>
+            <canvas id="face-canvas"></canvas>
+        </div>
+
+        <p class="guide-hint" id="scan-hint" data-i18n="beauty.guideHint">🧭 Line up your face inside the oval, eyes on the horizontal guide.</p>
+
+        <!-- Live-Messwerte: macht sichtbar, dass die Erkennung wirklich
+             misst. Beim Zusammenkniffen muss der Lidspalten-Wert fallen. -->
+        <div id="live-metrics" style="display:none; margin-top:10px; padding:10px 12px; border-radius:12px;
+             background:rgba(0,0,0,0.45); border:1px solid #26262e; font-size:.72rem; line-height:1.7;
+             text-align:left; color:#9ca3af; font-variant-numeric:tabular-nums;">
+            <b style="color:#e5e7eb;" data-i18n="m.title">Live measurements</b>
+            <div id="live-metrics-rows"></div>
+        </div>
+
+        <!-- Wird nur eingeblendet, wenn die Erkennung wirklich nicht klappt
+             (Kamera blockiert / MediaPipe vom Netz blockiert). -->
+        <div id="mediapipe-note" style="display:none; margin-top:12px; padding:12px 14px; border-radius:12px;
+             background:rgba(251,146,60,0.10); border:1px solid rgba(251,146,60,0.45);
+             color:#fed7aa; font-size:.82rem; line-height:1.5; text-align:left;">
+            <b>⚠️ Automatic face detection is not available.</b><br>
+            Either your camera permission was denied, or the face-detection library could not be loaded
+            (ad blocker / no internet).<br>
+            <b>These still work:</b> “📤 Upload a photo”, “📸 Use my saved photo”, or typing your
+            features by hand on the next screen.
+            <div id="mediapipe-note-detail" style="margin-top:6px; font-size:.78rem; color:#fdba74;"></div>
+            <button class="chip-alt" id="mediapipe-retry-btn" type="button" style="margin-top:10px;"
+                    onclick="retryCamera()">↻ Retry camera &amp; face detection</button>
+        </div>
+
+        <button class="chip-alt" style="margin-top:8px;" onclick="toggleGuide(this)"><span id="guide-label">🔲 Guide lines: ON</span></button>
+
+        <!-- Gesichtsprofil-Karte: gespeichertes Foto + gelöschtes Profil -->
+        <div id="saved-face-card" style="display:none; margin-top:18px; background:rgba(0,0,0,0.45); border:1px solid #26262e; border-radius:16px; padding:14px 16px;">
+            <div style="font-weight:800; font-size:15px;" data-i18n="beauty.savedCard">📸 Saved face profile available</div>
+            <div style="font-size:13px; color:var(--muted); margin:4px 0 10px;" data-i18n="beauty.savedHint">Re-analyse with a different style or budget.</div>
+            <div style="display:flex; gap:8px; flex-wrap:wrap;">
+                <button class="chip-alt" onclick="useSavedFace()" data-i18n="beauty.useSaved">📸 Use my saved photo</button>
+                <button class="chip-alt" style="border-color:rgba(255,107,107,.55);" onclick="deleteSavedFace()" data-i18n="beauty.delSaved">🗑 Delete saved profile</button>
+            </div>
+        </div>
+
+        <div style="display:flex; gap:8px; align-items:center; justify-content:center; margin-top:14px; flex-wrap:wrap;">
+            <label class="chip-alt" style="cursor:pointer;" for="photo-upload"><span data-i18n="beauty.upload">📤 Upload a photo</span></label>
+            <input type="file" id="photo-upload" accept="image/*" style="display:none;" onchange="handlePhotoUpload(this)">
+        </div>
+        <p style="text-align:center; font-size:12px; color:var(--muted); margin:6px 0 0;" data-i18n="beauty.uploadHint">stays on this device only</p>
+
+        <button class="btn-main" style="margin-top:20px;" onclick="captureNow(); showNext('step-features')">
+            <span data-i18n="beauty.initScan">INITIALIZE SCAN</span>
+        </button>
+    </div>
+
+    <!-- STEP 1b: DETECTED FEATURES -->
+    <div id="step-features" class="screen">
+        <h1 class="brand-glow" data-i18n="beauty.featTitle">Detected Features</h1>
+        <p class="guide-hint" data-i18n="beauty.featHint">The scanner found these — tap any field to edit freely before we pick your vibe.</p>
+
+        <div class="manual-grid" style="margin-top:20px;">
+            <label data-i18n="f.face">Face</label><input type="text" id="manual-face" oninput="markEdited('manual-face')" placeholder="Detected while scanning...">
+            <label data-i18n="f.eyes">Eyes</label><input type="text" id="manual-eyes" oninput="markEdited('manual-eyes')" placeholder="Detected while scanning...">
+            <label data-i18n="f.tilt">Eye Tilt</label><input type="text" id="manual-eyeTilt" oninput="markEdited('manual-eyeTilt')" placeholder="Detected while scanning...">
+            <label data-i18n="f.lips">Lips</label><input type="text" id="manual-lips" oninput="markEdited('manual-lips')" placeholder="Detected while scanning...">
+            <label data-i18n="f.brows">Brows</label><input type="text" id="manual-brows" oninput="markEdited('manual-brows')" placeholder="Detected while scanning...">
+            <label data-i18n="f.cheeks">Cheekbones</label><input type="text" id="manual-cheekbones" oninput="markEdited('manual-cheekbones')" placeholder="Detected while scanning...">
+            <label data-i18n="f.tone">Skin Tone</label><input type="text" id="manual-tone" oninput="markEdited('manual-tone')" placeholder="Detected while scanning...">
+        </div>
+
+        <button class="btn-main" style="margin-top:30px;" onclick="showNext('step-style')">
+            <span data-i18n="beauty.confirmFeatures">CONFIRM &amp; CHOOSE VIBE</span>
+        </button>
+    </div>
+
+    <!-- STEP 2: STYLE -->
+    <div id="step-style" class="screen">
+        <h1 class="brand-glow" data-i18n="beauty.styleTitle">Choose Your Vibe</h1>
+
+        <div class="style-grid">
+            <div class="style-card" onclick="setStyle('Clean Girl', this)">
+                <div class="style-icon">🪷</div>
+                <div class="style-title">Clean Girl</div>
+                <div class="style-desc">Glass skin, tidy brows, barely-there color.</div>
+            </div>
+            <div class="style-card" onclick="setStyle('Soft Glam', this)">
+                <div class="style-icon">✨</div>
+                <div class="style-title">Soft Glam</div>
+                <div class="style-desc">Luminous base, soft smoke, classic finish.</div>
+            </div>
+            <div class="style-card" onclick="setStyle('Bold Night', this)">
+                <div class="style-icon">💋</div>
+                <div class="style-title">Bold Night</div>
+                <div class="style-desc">Smoky eyes, sharp liner, statement lips.</div>
+            </div>
+            <div class="style-card" onclick="setStyle('Grunge', this)">
+                <div class="style-icon">🖤</div>
+                <div class="style-title">Grunge</div>
+                <div class="style-desc">Smudged liner, muted tones, undone edge.</div>
+            </div>
+        </div>
+
+        <p class="hud-label" style="margin-top:20px;" data-i18n="beauty.styleCustom">OR CUSTOM REQUEST</p>
+        <textarea id="style-req" data-i18n-ph="w.occPh" placeholder="e.g. Wedding, School, Date Night..."></textarea>
+
+        <p class="hud-label" style="margin-top:20px;" data-i18n="beauty.prefsLabel">PRODUCT PREFERENCES</p>
+        <div class="chip-container">
+            <button class="chip-alt" onclick="toggleFeature('vegan', this)">🌱 Vegan</button>
+            <button class="chip-alt" onclick="toggleFeature('organic', this)">🌿 Organic</button>
+            <button class="chip-alt" onclick="toggleFeature('cruelty free', this)">🐰 Cruelty-Free</button>
+        </div>
+
+        <input type="text" id="feature-search"
+            data-i18n-ph="beauty.prefsPh"
+            placeholder="Type other features (e.g. SPF, Waterproof)..."
+            style="width:100%; background:#1a1a1a; border:1px solid #333; border-radius:15px; padding:15px; color:white; margin-top:10px;">
+
+        <p class="hud-label" data-i18n="beauty.budgetLabel">BUDGET</p>
+        <div class="chip-container">
+            <button class="budget-chip" onclick="setBudget(30, this)" data-i18n="b.under">Under $30</button>
+            <button class="budget-chip" onclick="setBudget(100, this)" data-default="true" data-i18n="b.mid">$30 - $100</button>
+            <button class="budget-chip" onclick="setBudget(999, this)" data-i18n="b.unlim">Unlimited</button>
+        </div>
+        <div style="display:flex; gap:8px; align-items:center; justify-content:center; margin-top:10px;">
+            <span style="color:var(--text-muted); font-weight:800; font-size:15px;">$</span>
+            <input type="number" id="custom-budget" inputmode="decimal" min="0" step="1" data-i18n-ph="b.ph"
+                placeholder="Custom $"
+                style="width:130px; background:#1a1a1a; border:1px solid #333; border-radius:15px; padding:12px; color:white; text-align:center;"
+                oninput="customBudget(this)">
+        </div>
+
+        <button class="btn-main" style="margin-top:30px;" onclick="startAnalysis()">
+            <span data-i18n="beauty.gen">GENERATE ANALYSIS</span>
+        </button>
+    </div>
+
+    <!-- STEP 3: RESULTS -->
+    <div id="step-results" class="screen">
+
+        <!-- Tabs -->
+        <div class="tab-nav">
+            <button class="tab-btn active" onclick="switchTab('profile', this)" data-i18n="r.profile">Profile</button>
+            <button class="tab-btn" onclick="switchTab('tutorial', this)" data-i18n="r.tutorial">Tutorial</button>
+            <button class="tab-btn" onclick="switchTab('products', this)" data-i18n="r.shop">Shop</button>
+        </div>
+
+        <!-- PROFILE -->
+        <div id="tab-profile" class="tab-content active">
+            <div class="profile-hero">
+                <div class="photo-col">
+                    <div id="face-photo-wrap" class="face-photo-wrap" style="display:none;">
+                        <img id="face-photo" class="face-photo" alt="Your scan">
+                        <div id="tone-badge" class="tone-badge"></div>
+                    </div>
+                    <button class="chip-alt wide" id="save-face-profile-btn" style="display:none;"
+                        onclick="saveFaceProfile()"><span data-i18n="r.saveProfile">💾 Save as my face profile</span></button>
+                </div>
+                <div class="summary-card">
+                    <div class="hud-label">Your Custom Look</div>
+                    <p id="ai-summary">Analyzing your features...</p>
+                </div>
+            </div>
+
+            <div class="hud-grid">
+                <div class="hud-box"><p class="hud-label" data-i18n="f.face">Face</p><div id="res-face" class="hud-val"></div></div>
+                <div class="hud-box"><p class="hud-label" data-i18n="f.eyes">Eyes</p><div id="res-eyes" class="hud-val"></div></div>
+                <div class="hud-box"><p class="hud-label" data-i18n="f.tilt">Eye Tilt</p><div id="res-eyeTilt" class="hud-val"></div></div>
+                <div class="hud-box"><p class="hud-label" data-i18n="f.lips">Lips</p><div id="res-lips" class="hud-val"></div></div>
+                <div class="hud-box"><p class="hud-label" data-i18n="f.brows">Brows</p><div id="res-brows" class="hud-val"></div></div>
+                <div class="hud-box"><p class="hud-label" data-i18n="f.cheeks">Cheekbones</p><div id="res-cheeks" class="hud-val"></div></div>
+                <div class="hud-box"><p class="hud-label" data-i18n="f.tone">Skin Tone</p><div id="res-tone" class="hud-val"></div></div>
+            </div>
+
+            <div class="hud-box" id="face-geometry" style="display:none; margin-top:5px; text-align:left;">
+                <p class="hud-label" data-i18n="g.title">Face geometry (measured)</p>
+                <div id="geometry-rows" class="hud-val" style="font-size:.78rem; line-height:1.6; display:grid; gap:4px;"></div>
+            </div>
+
+            <button class="btn-main" style="margin-top:5px;"
+                onclick="toggleHairForm()">
+                <span data-i18n="r.hair">💇 Best Hairstyle for My Features</span>
+            </button>
+
+            <!-- HAIR DETAILS: damit der Friseur weiß, womit er arbeiten soll -->
+            <div id="hair-form" style="display:none; margin-top:14px; text-align:left;">
+                <p class="hud-label" data-i18n="h.title">Tell your stylist about your hair</p>
+
+                <!-- 1) Wohin geht's: Barbier / nur Styling / egal -->
+                <div class="hud-label" style="margin:10px 0 6px;" data-i18n="h.goal">What do you want?</div>
+                <div id="hair-goal" style="display:flex; flex-wrap:wrap; gap:8px;">
+                    <button class="style-chip" data-goal="barber" data-i18n="h.goalBarber">✂️ Going to a barber/salon</button>
+                    <button class="style-chip" data-goal="style" data-i18n="h.goalStyle">💫 Only style it, no cut</button>
+                    <button class="style-chip" data-goal="either" data-i18n="h.goalEither">🤷 Either is fine</button>
+                </div>
+                <p id="hair-goal-hint" style="color:#777; font-size:.75rem; margin:6px 0 0; display:none;"></p>
+
+                <!-- 2) Haartyp -->
+                <div class="hud-label" style="margin:14px 0 6px;" data-i18n="h.type">Your hair type (tap all that apply)</div>
+                <div id="hair-type" style="display:flex; flex-wrap:wrap; gap:8px;">
+                    <button class="style-chip" data-type="long" data-i18n="h.tLong">Long</button>
+                    <button class="style-chip" data-type="short" data-i18n="h.tShort">Short</button>
+                    <button class="style-chip" data-type="medium" data-i18n="h.tMedium">Medium</button>
+                    <button class="style-chip" data-type="straight" data-i18n="h.tStraight">Straight</button>
+                    <button class="style-chip" data-type="wavy" data-i18n="h.tWavy">Wavy</button>
+                    <button class="style-chip" data-type="curly" data-i18n="h.tCurly">Curly</button>
+                    <button class="style-chip" data-type="coily" data-i18n="h.tCoily">Coily / Afro</button>
+                    <button class="style-chip" data-type="frizzy" data-i18n="h.tFrizzy">Frizzy</button>
+                    <button class="style-chip" data-type="thick" data-i18n="h.tThick">Thick</button>
+                    <button class="style-chip" data-type="fine" data-i18n="h.tFine">Fine / thin</button>
+                    <button class="style-chip" data-type="dry" data-i18n="h.tDry">Dry</button>
+                    <button class="style-chip" data-type="oily" data-i18n="h.tOily">Oily / greasy</button>
+                    <button class="style-chip" data-type="damaged" data-i18n="h.tDamaged">Colored / damaged</button>
+                    <button class="style-chip" data-type="grey" data-i18n="h.tGrey">Growing out grey</button>
+                </div>
+
+                <!-- 3) Freitext: Farbe, Wuchs, Kopfhaut, Allergien, Wünsche -->
+                <label class="hud-label" for="hair-notes" style="display:block; margin:14px 0 6px;" data-i18n="h.notes">In your own words (color, growth pattern, scalp, allergies…)</label>
+                <textarea id="hair-notes" rows="3" data-i18n-ph="h.notesPh"
+                    placeholder="e.g. dark brown with bleached ends, grows very fast at the back, frizzy in humidity, sensitive scalp…"></textarea>
+
+                <button class="btn-main" style="margin-top:12px;" onclick="getHairRecommendation()">
+                    <span data-i18n="h.ask">💇 Get My Hairstyles</span>
+                </button>
+            </div>
+
+            <div id="hair-recommendation" style="display:none; margin-top:20px;"></div>
+        </div>
+
+        <!-- TUTORIAL -->
+        <div id="tab-tutorial" class="tab-content" style="display:none;">
+            <div id="video-tutorials"></div>
+            <div id="tutorial-steps"></div>
+        </div>
+
+        <!-- PRODUCTS -->
+        <div id="tab-products" class="tab-content" style="display:none;">
+            <div id="product-list-detailed"></div>
+        </div>
+
+        <button class="btn-main"
+            onclick="location.reload()"
+            style="background:none; border:1px solid #333; margin-top:30px;">
+            <span data-i18n="r.newScan">NEW SCAN</span>
+        </button>
+    </div>
+
+    <!-- Scripts -->
+    <script src="{{ url_for('static', filename='js/app-ui.js') }}"></script>
+    <script src="{{ url_for('static', filename='js/camera.js') }}"></script>
+    <script src="{{ url_for('static', filename='js/ai-logic.js') }}"></script>
+
+    <!-- UI LOGIC -->
+    <script>
+        function captureNow() {
+            if (window.faceSnapshot) {
+                var p = document.getElementById('face-photo');
+                var w = document.getElementById('face-photo-wrap');
+                if (p) p.src = window.faceSnapshot;
+                if (w) w.style.display = 'block';
+                return;
+            }
+            if (typeof window.captureFaceSnapshot === 'function') {
+                const snap = window.captureFaceSnapshot();
+                if (snap) {
+                    window.faceSnapshot = snap;
+                    var p = document.getElementById('face-photo');
+                    var w = document.getElementById('face-photo-wrap');
+                    if (p) p.src = snap;
+                    if (w) w.style.display = 'block';
+                }
+            }
+        }
+
+        /* --- Foto-Upload statt Kamera (Datei bleibt lokal) --- */
+        function handlePhotoUpload(input) {
+            const f = input && input.files && input.files[0];
+            if (!f) return;
+            if (!/^image\//.test(f.type)) {
+                alert('Please choose an image file.');
+                input.value = '';
+                return;
+            }
+            const reader = new FileReader();
+            reader.onload = function () {
+                const dataUrl = reader.result;
+                window.faceSnapshot = dataUrl;
+                const img = new Image();
+                img.onload = function () {
+                    if (typeof window.stopCamera === 'function') window.stopCamera();
+                    if (typeof window.useUploadedPhoto === 'function') window.useUploadedPhoto(img);
+                    captureNow();
+                    const hint = document.getElementById('scan-hint');
+                    if (hint) hint.textContent = '📷 ' + (window.T ? T('beauty.uploadDone') : 'Photo loaded — press INITIALIZE SCAN.');
+                };
+                img.src = dataUrl;
+            };
+            reader.readAsDataURL(f);
+        }
+
+        /* --- Gesichtsprofil (lokal auf dem Gerät) --- */
+        function getSavedFace() {
+            try {
+                return JSON.parse(localStorage.getItem('styleai_face') || 'null');
+            } catch (e) { return null; }
+        }
+
+        function showSavedFaceCard() {
+            const card = document.getElementById('saved-face-card');
+            if (!card) return;
+            card.style.display = getSavedFace() ? 'block' : 'none';
+        }
+
+        window.useSavedFace = function () {
+            const prof = getSavedFace();
+            if (!prof || !prof.photo) return;
+            if (typeof window.stopCamera === 'function') window.stopCamera();
+            window.photoMode = true;
+            window.faceSnapshot = prof.photo;
+            captureNow();
+            if (prof.features) {
+                window.features = Object.assign({}, window.features, prof.features);
+                window.editedInputs = new Set();
+                window.syncManualFeatures && window.syncManualFeatures();
+            }
+            const img = new Image();
+            img.onload = function () {
+                if (typeof window.runFaceMeshOn === 'function') window.runFaceMeshOn(img);
+            };
+            img.src = prof.photo;
+            const hint = document.getElementById('scan-hint');
+            if (hint) hint.textContent = '📸 ' + (window.T ? T('beauty.savedUsed') : 'Using your saved photo — press INITIALIZE SCAN.');
+        };
+
+        window.deleteSavedFace = function () {
+            localStorage.removeItem('styleai_face');
+            showSavedFaceCard();
+            window.faceSnapshot = null;
+        };
+
+        window.saveFaceProfile = function () {
+            const f = window.collectFeatures ? window.collectFeatures() : {};
+            if (!window.faceSnapshot) {
+                alert(window.T ? T('beauty.saveNeedsPhoto') : 'No scan photo to save yet.');
+                return;
+            }
+            localStorage.setItem('styleai_face', JSON.stringify({
+                photo: window.faceSnapshot,
+                features: f,
+                savedAt: Date.now()
+            }));
+            if (window.toast) toast(window.T ? T('r.savedOk') : 'Profile saved!');
+        };
+
+        /* Übersetzter Anfangs-Text für den Guide-Toggle-Button */
+        function initGuideLabel() {
+            const g = document.getElementById('guide-label');
+            if (g && window.T) g.textContent = '🔲 ' + T('beauty.guideOn');
+        }
+        document.addEventListener('DOMContentLoaded', function () {
+            initGuideLabel();
+            showSavedFaceCard();
+        });
+
+        function showNext(id) {
+            document.querySelectorAll('.screen').forEach(s => s.classList.remove('active'));
+            document.getElementById(id).classList.add('active');
+        }
+
+        function switchTab(tabId, el) {
+            document.querySelectorAll('.tab-content').forEach(c => c.style.display = 'none');
+            document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+
+            document.getElementById('tab-' + tabId).style.display = 'block';
+            el.classList.add('active');
+        }
+
+        markNavActive('beauty');
+    </script>
+
+<!-- Unten-Navigation am Handy (dieselbe wie Hub/Settings/Style Lab) -->
+<nav class="bottom-nav" style="bottom:0;">
+    <a href="/" class="nav-item" data-page="home"><span>🏠</span> <span data-i18n="nav.home">Home</span></a>
+    <a href="/wardrobe" class="nav-item" data-page="wardrobe"><span>👗</span> <span data-i18n="nav.style">Style Lab</span></a>
+    <a href="/beauty" class="nav-item" data-page="beauty"><span>✨</span> <span data-i18n="nav.beauty">Beauty Lab</span></a>
+    <a href="/settings" class="nav-item" data-page="settings"><span>⚙️</span> <span data-i18n="nav.settings">Settings</span></a>
+</nav>
+
+    <script src="{{ url_for('static', filename='js/pwa.js') }}" defer></script>
+</body>
+</html>

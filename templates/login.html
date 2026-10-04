@@ -1,0 +1,338 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+    <title>Aestra — Sign in</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/base.css') }}">
+    <!-- Login-Spezial: zentrierte Karte + Tab-Wechsler. Passt optisch zum
+         dunklen Marken-Theme der restlichen App. -->
+    <style>
+        body {
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 28px 16px;
+            background: radial-gradient(1100px 500px at 30% -10%, #0c2f2b 0%, #0a0a0f 55%, #05050a 100%);
+        }
+
+        .auth-card {
+            width: 100%;
+            max-width: 400px;
+            background: rgba(18, 18, 26, .85);
+            backdrop-filter: blur(12px);
+            -webkit-backdrop-filter: blur(12px);
+            border: 1px solid var(--border);
+            border-radius: 24px;
+            padding: 32px 28px;
+            box-shadow: 0 24px 70px rgba(0, 0, 0, .5);
+        }
+
+        .auth-logo {
+            text-align: center;
+            font-size: 40px;
+            margin-bottom: 6px;
+        }
+        .auth-card h1 {
+            text-align: center;
+            font-size: 24px;
+            font-weight: 800;
+            letter-spacing: -.5px;
+            background: linear-gradient(90deg, var(--primary), var(--accent-deep));
+            -webkit-background-clip: text;
+            background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }
+        .auth-sub {
+            text-align: center;
+            color: var(--muted);
+            font-size: 13px;
+            margin-top: 6px;
+            line-height: 1.6;
+        }
+
+        /* Tab-Wechsler Log in / Create account */
+        .tabs {
+            display: flex;
+            gap: 4px;
+            margin: 26px 0 4px;
+            background: rgba(0, 0, 0, .3);
+            border: 1px solid var(--border);
+            border-radius: 14px;
+            padding: 4px;
+        }
+        .tab {
+            flex: 1;
+            padding: 11px;
+            text-align: center;
+            border: none;
+            cursor: pointer;
+            border-radius: 10px;
+            font-weight: 800;
+            font-size: 14px;
+            background: transparent;
+            color: var(--muted);
+            transition: .2s;
+        }
+        .tab.active { background: linear-gradient(90deg, var(--primary), var(--accent-deep)); color: #fff; }
+
+        .check {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            font-size: 13px;
+            font-weight: 600;
+            text-transform: none;
+            color: var(--muted);
+            margin: 12px 0 0;
+        }
+        .check input { width: 16px; height: 16px; accent-color: var(--primary); }
+
+        .auth-note { text-align: center; font-size: 12px; color: var(--muted); margin-top: 22px; line-height: 1.6; }
+        .inline-link { color: var(--primary); font-size: 13px; }
+    </style>
+    <!-- PWA -->
+    <link rel="manifest" href="/manifest.json">
+    <meta name="theme-color" content="#000000">
+    <link rel="icon" type="image/png" sizes="32x32" href="{{ url_for('static', filename='favicon.png') }}">
+    <link rel="icon" type="image/svg+xml" href="{{ url_for('static', filename='icons/logo.svg') }}">
+    <link rel="apple-touch-icon" href="{{ url_for('static', filename='icons/apple-touch-icon.png') }}">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <meta name="apple-mobile-web-app-title" content="My Style">
+</head>
+<body>
+
+    <div class="auth-card">
+        <div class="auth-logo">✨</div>
+        <h1>Aestra</h1>
+        <p class="auth-sub">Your personal AI wardrobe &amp; makeup lab.<br>Create an account so your looks live with <b>you</b> — not your browser.</p>
+
+        <!-- Tab-Wechsler -->
+        <div class="tabs">
+            <button class="tab active" id="tabLogin" onclick="switchTab('login')">Log in</button>
+            <button class="tab" id="tabSignup" onclick="switchTab('signup')">Create account</button>
+        </div>
+
+        <!-- LOGIN -->
+        <form id="formLogin" onsubmit="submitForm('login'); return false;">
+            <label>Username or email</label>
+            <input id="liUser" autocomplete="username" placeholder="yourname" required>
+            <label>Password</label>
+            <input id="liPass" type="password" autocomplete="current-password" placeholder="••••••••" required>
+            <label class="check"><input type="checkbox" id="liRemember" checked> Remember me on this device</label>
+            <button class="btn" id="liBtn" style="margin-top:22px;">Log in →</button>
+            <div style="text-align:center; margin-top:16px;">
+                <a href="#" class="inline-link" onclick="openForgot(); return false;">Forgot your password?</a>
+            </div>
+        </form>
+
+        <!-- SIGN UP -->
+        <form id="formSignup" style="display:none;" onsubmit="submitForm('signup'); return false;">
+            <label>Username</label>
+            <input id="suUser" autocomplete="username" placeholder="3+ letters / numbers — no spaces" required>
+            <label>Email (optional)</label>
+            <input id="suEmail" type="email" autocomplete="email" placeholder="you@example.com">
+            <label>Password</label>
+            <input id="suPass" type="password" autocomplete="new-password" placeholder="at least 6 characters" required>
+            <label>Security question <span style="text-transform:none; letter-spacing:0;">(to reset a forgotten password)</span></label>
+            <select id="suQ">
+                <option value="What was the name of your first pet?">What was the name of your first pet?</option>
+                <option value="What was your childhood nickname?">What was your childhood nickname?</option>
+                <option value="What is your mother's maiden name?">What is your mother's maiden name?</option>
+                <option value="What street did you grow up on?">What street did you grow up on?</option>
+                <option value="What was the make and model of your first car?">What was the make and model of your first car?</option>
+                <option value="custom">✍️ Write my own question…</option>
+            </select>
+            <input id="suQcustom" style="display:none; margin-top:8px;" placeholder="Your custom question…">
+            <label>Security answer</label>
+            <input id="suA" autocomplete="off" placeholder="e.g. Rex" required>
+            <label class="check"><input type="checkbox" id="suRemember" checked> Remember me on this device</label>
+            <button class="btn" id="suBtn" style="margin-top:22px;">Create account →</button>
+        </form>
+
+        <!-- FORGOT PASSWORD -->
+        <form id="formForgot" style="display:none;" onsubmit="return false;">
+            <label>Username or email</label>
+            <input id="foUser" autocomplete="username" placeholder="yourname" required>
+            <div id="foQuestionWrap" style="display:none; margin-top:14px; background:var(--bg-soft); border:1px solid var(--border); padding:14px; border-radius:12px; font-size:13px; line-height:1.5;">
+                Security question: <b id="foQuestion" style="color:var(--text);"></b>
+                <label style="margin-top:10px;">Answer</label>
+                <input id="foA" autocomplete="off" placeholder="Your answer">
+                <label>New password</label>
+                <input id="foNew" type="password" autocomplete="new-password" placeholder="at least 6 characters">
+                <button class="btn" id="foBtn" disabled>Reset password →</button>
+            </div>
+            <button class="btn" id="foStep1Btn" style="margin-top:22px;">Find my account</button>
+            <div style="text-align:center; margin-top:14px;">
+                <a href="#" class="inline-link" onclick="openForgot(false); return false;">← Back to log in</a>
+            </div>
+        </form>
+
+        <div class="errbox" id="errBox"></div>
+
+        <p class="auth-note">Any clothes you saved before (in this browser) are <b>automatically imported</b> into your account the first time you log in.</p>
+    </div>
+
+    <script src="{{ url_for('static', filename='js/app-ui.js') }}"></script>
+    <script>
+        /* Die Login- und Registrier-Logik: jeder Tab zeigt sein eigenes Formular,
+           echte Meldungen landen konzentriert in der Fehler-Box. */
+        function switchTab(t) {
+            document.getElementById('tabLogin').classList.toggle('active', t === 'login');
+            document.getElementById('tabSignup').classList.toggle('active', t === 'signup');
+            document.getElementById('formLogin').style.display = t === 'login' ? 'block' : 'none';
+            document.getElementById('formSignup').style.display = t === 'signup' ? 'block' : 'none';
+            document.getElementById('formForgot').style.display = 'none';
+            document.getElementById('errBox').style.display = 'none';
+        }
+
+        document.getElementById('suQ').addEventListener('change', function () {
+            document.getElementById('suQcustom').style.display = this.value === 'custom' ? 'block' : 'none';
+        });
+
+        function openForgot(show) {
+            if (show === false) {
+                document.getElementById('formForgot').style.display = 'none';
+                document.getElementById('formLogin').style.display = 'block';
+                return;
+            }
+            document.getElementById('formLogin').style.display = 'none';
+            document.getElementById('formSignup').style.display = 'none';
+            document.getElementById('formForgot').style.display = 'block';
+            document.getElementById('foQuestionWrap').style.display = 'none';
+            document.getElementById('foStep1Btn').style.display = 'block';
+            document.getElementById('foStep1Btn').textContent = 'Find my account';
+            document.getElementById('errBox').style.display = 'none';
+        }
+
+        function showErr(msg) {
+            const err = document.getElementById('errBox');
+            err.textContent = msg;
+            err.style.display = 'block';
+        }
+
+        async function submitForm(mode) {
+            const err = document.getElementById('errBox');
+            err.style.display = 'none';
+            const btn = document.getElementById(mode === 'login' ? 'liBtn' : 'suBtn');
+            btn.disabled = true;
+            btn.textContent = 'Please wait…';
+            try {
+                let body, uri;
+                if (mode === 'login') {
+                    uri = '/api/auth/login';
+                    body = {
+                        username: document.getElementById('liUser').value.trim(),
+                        password: document.getElementById('liPass').value,
+                        remember: document.getElementById('liRemember').checked
+                    };
+                } else {
+                    let q = document.getElementById('suQ').value;
+                    if (q === 'custom') q = document.getElementById('suQcustom').value.trim();
+                    uri = '/api/auth/signup';
+                    body = {
+                        username: document.getElementById('suUser').value.trim(),
+                        email: document.getElementById('suEmail').value.trim(),
+                        password: document.getElementById('suPass').value,
+                        sec_q: q,
+                        sec_a: document.getElementById('suA').value.trim(),
+                        remember: document.getElementById('suRemember').checked
+                    };
+                }
+                const res = await fetch(uri, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(body)
+                });
+                const data = await res.json();
+                if (data.ok) {
+                    location.href = '/';
+                } else {
+                    showErr(data.error || 'Something went wrong.');
+                }
+            } catch (e) {
+                showErr('Could not reach the server. Try again.');
+            } finally {
+                btn.disabled = false;
+                btn.textContent = mode === 'login' ? 'Log in →' : 'Create account →';
+            }
+        }
+
+        async function findAccount() {
+            showErr('');
+            const btn = document.getElementById('foStep1Btn');
+            btn.disabled = true;
+            btn.textContent = 'Looking…';
+            try {
+                const res = await fetch('/api/auth/forgot-info', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ username: document.getElementById('foUser').value.trim() })
+                });
+                const data = await res.json();
+                if (data.ok && data.question) {
+                    btn.style.display = 'none';
+                    document.getElementById('foQuestion').textContent = data.question;
+                    document.getElementById('foQuestionWrap').style.display = 'block';
+                    document.getElementById('formForgot').style.display = 'block';
+                } else {
+                    showErr(data.error || 'Account not found.');
+                }
+            } catch (e) {
+                showErr('Could not reach the server. Try again.');
+            } finally {
+                btn.disabled = false;
+            }
+        }
+
+        document.getElementById('foStep1Btn').addEventListener('click', findAccount);
+
+        async function resetPassword() {
+            showErr('');
+            const btn = document.getElementById('foBtn');
+            btn.disabled = true;
+            btn.textContent = 'Please wait…';
+            try {
+                const res = await fetch('/api/auth/forgot-reset', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        username: document.getElementById('foUser').value.trim(),
+                        answer: document.getElementById('foA').value.trim(),
+                        newPassword: document.getElementById('foNew').value
+                    })
+                });
+                const data = await res.json();
+                if (data.ok) {
+                    alert('Password reset! Log in with your new password.');
+                    switchTab('login');
+                } else {
+                    showErr(data.error || 'Could not reset.');
+                    btn.disabled = false;
+                    btn.textContent = 'Reset password →';
+                }
+            } catch (e) {
+                showErr('Could not reach the server. Try again.');
+                btn.disabled = false;
+                btn.textContent = 'Reset password →';
+            }
+        }
+        document.getElementById('foBtn').addEventListener('click', resetPassword);
+
+        /* Der Reset-Button bleibt gesperrt, bis beide Felder brauchbar sind */
+        document.addEventListener('DOMContentLoaded', function () {
+            ['foA', 'foNew'].forEach(function (id) {
+                document.getElementById(id).addEventListener('input', function () {
+                    document.getElementById('foBtn').disabled =
+                        !document.getElementById('foA').value.trim() ||
+                        document.getElementById('foNew').value.length < 6;
+                });
+            });
+        });
+    </script>
+    <script src="{{ url_for('static', filename='js/pwa.js') }}" defer></script>
+</body>
+</html>

@@ -1,0 +1,610 @@
+:root {
+    /* Aestra-Markenfarben: neutrales Teal statt Pink */
+    --primary: #14b8a6; --accent-deep: #0f766e; --accent: #5ef2c3; --bg: #0a0a0f; --card: #12121a;
+}
+
+body { background: var(--bg); color: white; font-family: 'Inter', sans-serif; margin: 0; }
+/* Oben Abstand für die sticky Top-Bar (~56px), unten für die Handy-Navigation
+   (~66px), damit kein Inhalt verdeckt wird. */
+.screen { display: none; width: 100%; max-width: 450px; margin: 0 auto; padding: 76px 20px 110px; min-height: 100vh; box-sizing: border-box; }
+.active { display: block; }
+
+.brand-glow {
+    background: linear-gradient(90deg, var(--primary), var(--accent-deep));
+    -webkit-background-clip: text;
+    background-clip: text;
+    -webkit-text-fill-color: transparent;
+    color: transparent;
+    font-weight: 800;
+}
+
+/* HUD Grid from your screenshots */
+.hud-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin: 20px 0; }
+.hud-box { background: var(--card); border: 1px solid #222; border-radius: 20px; padding: 15px; }
+.hud-label { color: #555; font-size: 10px; text-transform: uppercase; letter-spacing: 1px; margin-bottom: 5px; }
+.hud-val { font-size: 16px; font-weight: 600; }
+
+/* Style Grid */
+.style-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 12px;
+    margin-top: 6px;
+}
+
+.style-card {
+    display: flex;
+    flex-direction: column;
+    background: #121212;
+    border: 1px solid #222;
+    border-radius: 18px;
+    padding: 18px 16px;
+    cursor: pointer;
+    transition: border-color 0.2s, background 0.2s, transform 0.15s;
+    min-height: 118px;
+    box-sizing: border-box;
+}
+
+.style-card:hover {
+    border-color: var(--primary);
+    background: #181818;
+}
+
+.style-card:active {
+    transform: scale(0.97);
+}
+
+/* Ausgewählter Stil: deutlicher Teal-Rahmen + dezente Hülle */
+.style-card.selected {
+    border-color: var(--primary);
+    background: #142120;
+    box-shadow: inset 0 0 0 1px var(--primary);
+}
+
+.style-icon { font-size: 26px; line-height: 1; margin-bottom: 10px; }
+.style-title { font-weight: 700; font-size: 15px; margin-bottom: 4px; }
+.style-desc { color: #666; font-size: 12px; line-height: 1.4; margin-top: auto; }
+
+/* Keyword & Budget Chips */
+.chip-container {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    margin-top: 10px;
+}
+
+.chip-alt, .budget-chip {
+    background: var(--btn-bg);
+    color: var(--btn-fg);
+    border: 1px solid var(--btn-border);
+    padding: 10px 20px;
+    border-radius: 30px; /* Fully rounded like your screenshot */
+    font-size: 14px;
+    cursor: pointer;
+    transition: border-color .2s ease, background .2s ease;
+}
+
+.chip-alt:hover, .budget-chip:hover {
+    border-color: var(--btn-border-hover);
+    background: #0d0d0d;
+}
+
+.chip-alt:active, .budget-chip:active {
+    background: var(--btn-active-bg);
+    border-color: var(--btn-active-fg);
+    color: var(--btn-active-fg);
+}
+
+/* Gewähltes Budget / aktiver Keyword-Chip */
+.budget-chip.picked {
+    background: var(--btn-active-bg);
+    color: var(--btn-active-fg);
+    border-color: var(--btn-active-fg);
+}
+
+/* Hairstylist: Ziel-Chips (Barbier / nur Styling) + Haartyp-Chips */
+.style-chip {
+    background: var(--btn-bg);
+    color: var(--btn-fg);
+    border: 1px solid var(--btn-border);
+    padding: 8px 14px;
+    border-radius: 30px;
+    font-size: 13px;
+    cursor: pointer;
+    text-align: left;
+    line-height: 1.3;
+    transition: background .15s, border-color .15s;
+}
+
+.style-chip:hover {
+    border-color: var(--btn-border-hover);
+}
+
+.style-chip.active {
+    background: var(--btn-active-bg);
+    border-color: var(--btn-active-fg);
+    color: var(--btn-active-fg);
+    font-weight: 600;
+}
+
+/* Manual face-feature override grid */
+.manual-grid {
+    display: grid;
+    grid-template-columns: auto 1fr;
+    gap: 8px 10px;
+    align-items: center;
+    margin-top: 10px;
+}
+
+.manual-grid label {
+    font-size: 12px;
+    font-weight: 800;
+    text-transform: uppercase;
+    letter-spacing: .5px;
+    color: var(--text-muted);
+}
+
+.manual-grid input {
+    width: 100%;
+    background: #1a1a1a;
+    border: 1px solid #333;
+    border-radius: 12px;
+    padding: 11px 14px;
+    color: #fff;
+    font-size: 14px;
+}
+
+.manual-grid input:focus {
+    outline: none;
+    border-color: var(--primary);
+}
+
+.guide-hint {
+    color: var(--text-muted);
+    font-size: 13px;
+    text-align: center;
+    margin-top: 12px;
+}
+
+/* Number inputs: no spinners, it is a price field */
+input[type="number"]::-webkit-outer-spin-button,
+input[type="number"]::-webkit-inner-spin-button {
+    -webkit-appearance: none;
+    margin: 0;
+}
+
+input[type="number"] {
+    -moz-appearance: textfield;
+    appearance: textfield;
+}
+
+textarea {
+    width: 100%;
+    background: #1a1a1a;
+    border: 1px solid #333;
+    border-radius: 15px;
+    padding: 15px;
+    color: white;
+    margin-top: 10px;
+    font-size: 16px;
+}
+
+/* TAB SYSTEM */
+.tab-nav {
+    display: flex;
+    background: #181818;
+    border-radius: 15px;
+    padding: 5px;
+    margin-bottom: 20px;
+    justify-content: space-around;
+}
+.tab-btn {
+    padding: 10px 15px;
+    border-radius: 10px;
+    border: none;
+    background: transparent;
+    color: #8a8a8a;
+    font-weight: 700;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    gap: 5px;
+}
+.tab-btn.active { background: var(--btn-active-bg); color: var(--btn-active-fg); }
+
+/* TUTORIAL STEPS (image_4.jpg style) */
+.step-card {
+    background: #121212;
+    border: 1px solid #222;
+    border-radius: 20px;
+    padding: 20px;
+    margin-bottom: 15px;
+}
+.step-num {
+    background: var(--primary);
+    color: white;
+    width: 30px;
+    height: 30px;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-weight: bold;
+    margin-bottom: 15px;
+}
+.pro-tip {
+    background: rgba(20, 184, 166, 0.06);
+    border-left: 3px solid var(--primary);
+    padding: 15px;
+    border-radius: 0 10px 10px 0;
+    margin-top: 15px;
+}
+.yt-container {
+    margin-bottom: 20px;
+    padding: 10px;
+    background: rgba(255, 0, 0, 0.1);
+    border: 1px solid rgba(255, 0, 0, 0.3);
+    border-radius: 15px;
+    text-align: center;
+}
+
+.youtube-link {
+    color: #ff4d4d;
+    text-decoration: none;
+    font-weight: 800;
+    font-size: 14px;
+    letter-spacing: 1px;
+}
+
+.youtube-link:hover {
+    text-decoration: underline;
+}
+/* PRICE COMPARISON (image_6.png style) */
+.comparison-header {
+    display: grid;
+    grid-template-columns: 1fr 1fr 1fr;
+    background: #121212;
+    border: 1px solid #333;
+    border-radius: 15px;
+    padding: 15px;
+    text-align: center;
+    margin-bottom: 20px;
+}
+.savings-val { color: var(--accent); font-size: 24px; font-weight: 800; }
+
+.dupe-selector {
+    display: flex;
+    background: #000;
+    border-radius: 12px;
+    padding: 4px;
+    margin-bottom: 15px;
+}
+.dupe-toggle {
+    flex: 1;
+    padding: 8px;
+    border-radius: 10px;
+    text-align: center;
+    font-size: 12px;
+    font-weight: 700;
+    cursor: pointer;
+}
+.dupe-toggle.selected { background: #333; border: 1px solid #444; }
+
+/* Product Cards */
+.prod-card { background: var(--card); border: 1px solid var(--accent); border-radius: 20px; padding: 15px; margin-top: 15px; }
+.dupe-tag { background: rgba(94, 242, 195, 0.1); color: var(--accent); font-size: 10px; padding: 4px 8px; border-radius: 6px; font-weight: 800; }
+.buy-btn { display: block; width: 100%; background: var(--btn-bg); color: var(--btn-fg); border: 1px solid var(--btn-border); text-align: center; padding: 12px; border-radius: 12px; text-decoration: none; font-weight: bold; margin-top: 10px; }
+.buy-btn:hover { border-color: var(--btn-border-hover); }
+
+/* Inputs & Buttons */
+.chip, .budget-btn { background: var(--btn-bg); color: var(--btn-fg); border: 1px solid var(--btn-border); padding: 8px 15px; border-radius: 8px; font-weight: 700; cursor: pointer; margin-right: 5px; }
+.chip:hover, .budget-btn:hover { border-color: var(--btn-border-hover); }
+textarea { width: 100%; background: #000; border: 1px solid #333; color: white; padding: 15px; border-radius: 15px; margin: 15px 0; box-sizing: border-box; }
+.btn-main { width: 100%; padding: 18px; border-radius: 40px; border: 1px solid var(--btn-border); background: var(--btn-bg); color: var(--btn-fg); font-weight: 800; letter-spacing: .02em; cursor: pointer; transition: border-color .2s ease, background .2s ease; }
+.btn-main:hover { border-color: var(--btn-border-hover); background: #0d0d0d; }
+.btn-main:active { background: var(--btn-active-bg); color: var(--btn-active-fg); border-color: var(--btn-active-fg); }
+
+/* Camera View */
+.video-wrap { position: relative; border-radius: 25px; overflow: hidden; border: 1px solid #333; aspect-ratio: 3/4; }
+video { width: 100%; height: 100%; object-fit: cover; transform: scaleX(-1); }
+canvas { position: absolute; top: 0; left: 0; width: 100%; height: 100%; pointer-events: none; }
+
+/* Better Vertical Product List */
+#tab-products {
+    max-height: 70vh;
+    overflow-y: auto;
+    padding-bottom: 50px;
+}
+
+.product-vertical-grid {
+    display: flex;
+    flex-direction: column;
+    gap: 15px;
+}
+
+.prod-card-detailed {
+    background: #121212;
+    border: 1px solid #222;
+    border-radius: 20px;
+    padding: 15px;
+    display: flex;
+    gap: 15px;
+    align-items: center;
+}
+
+.prod-img {
+    width: 80px;
+    height: 80px;
+    object-fit: cover;
+    border-radius: 12px;
+    background: #fff;
+}
+
+.prod-info { flex: 1; }
+
+.prod-info h4 {
+    /* 1. Standard Property (Future-proofing) */
+    line-clamp: 2;
+
+    /* 2. Legacy/Current Standard (Required for truncation) */
+    display: -webkit-box;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 2;
+
+    /* 3. Essential containment */
+    overflow: hidden;
+
+    /* 4. Fallback for very old browsers */
+    max-height: 2.8em; /* Adjust based on your line-height */
+    line-height: 1.4em;
+}
+
+/* Ensure Tutorial allows scrolling */
+#tab-tutorial {
+    max-height: 70vh;
+    overflow-y: auto;
+    padding-bottom: 50px;
+}
+
+/* ============================================================
+   RESULTS — PROFILE (photo hero + summary)
+   ============================================================ */
+.profile-hero {
+    display: flex;
+    align-items: flex-start;
+    gap: 16px;
+    margin-bottom: 20px;
+}
+
+/* Linke Spalte: Foto + Face-Map-Knopf + Legende + Profil speichern.
+   Früher lagen diese Knöpfe als Geschwister neben dem Foto — dadurch
+   wurden sie auf dem Desktop in eine Zeile gequetscht. */
+.photo-col {
+    width: 230px;
+    flex: 0 0 230px;
+    display: flex;
+    flex-direction: column;
+    align-items: stretch;
+    gap: 10px;
+}
+
+/* Knöpfe in der Spalte: volle Breite, nicht länger als die Spalte */
+.chip-alt.wide {
+    width: 100%;
+    max-width: 100%;
+    white-space: normal;
+    line-height: 1.35;
+    font-size: 13px;
+    padding: 12px 14px;
+}
+
+.face-photo-wrap {
+    position: relative;
+    width: 100%;
+    height: 260px;
+    min-width: 0;
+    border-radius: 22px;
+    overflow: hidden;
+    border: 2px solid #2a2a2a;
+    background: #121212;
+    box-shadow: 0 0 0 1px rgba(20, 184, 166, 0.25), 0 8px 24px rgba(0, 0, 0, 0.45);
+}
+
+.face-photo {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    transform: scaleX(-1); /* mirror, matching what the user saw on screen */
+}
+
+.tone-badge {
+    position: absolute;
+    left: 8px;
+    bottom: 8px;
+    background: rgba(0, 0, 0, 0.75);
+    border: 1px solid rgba(255, 255, 255, 0.15);
+    color: #fff;
+    font-size: 10px;
+    letter-spacing: 1px;
+    text-transform: uppercase;
+    padding: 4px 10px;
+    border-radius: 20px;
+}
+
+.summary-card {
+    flex: 1 1 auto;
+    min-width: 0;
+    background: var(--card);
+    border: 1px solid #222;
+    border-radius: 22px;
+    padding: 18px 20px;
+    display: flex;
+    flex-direction: column;
+}
+
+.summary-card p {
+    margin: 6px 0 0 0;
+    font-size: 14.5px;
+    line-height: 1.6;
+    color: #bbb;
+    font-style: italic;
+    overflow-y: auto;
+}
+
+/* Cleaner metric grid on results */
+.hud-grid {
+    grid-template-columns: repeat(2, 1fr);
+    gap: 10px;
+    margin: 0 0 20px 0;
+}
+
+.hud-box {
+    padding: 13px 15px;
+}
+
+/* --- Schmale Handys: alles untereinander, Foto über die ganze Breite --- */
+@media (max-width: 520px) {
+    .profile-hero { flex-direction: column; }
+    .photo-col { width: 100%; flex: 0 0 auto; }
+    .face-photo-wrap { height: 320px; }
+}
+
+/* ============================================================
+   DESKTOP / TABLET — die Beauty-Seite war auf 450px Spalte
+   "klein und mittig". Auf großen Schirmen wird breiter und
+   die Inhalte dürfen die volle Fläche nutzen.
+   ============================================================ */
+@media (min-width: 900px) {
+    .screen { max-width: 1040px; padding: 88px 32px 120px; }
+
+    .profile-hero { gap: 26px; }
+    .photo-col { width: 330px; flex: 0 0 330px; gap: 12px; }
+    .face-photo-wrap { height: 400px; }
+    .chip-alt.wide { font-size: 14px; padding: 14px 16px; }
+
+    .hud-grid { grid-template-columns: repeat(4, 1fr); gap: 12px; }
+    .hud-box { padding: 16px 18px; }
+
+    .tab-nav { padding: 7px; border-radius: 18px; max-width: 640px; margin-left: auto; margin-right: auto; }
+    .tab-btn { font-size: 15px; padding: 13px 10px; }
+
+    .btn-main { padding: 20px; font-size: 16px; }
+    .style-grid { gap: 16px; }
+    .style-card { min-height: 140px; padding: 20px 18px; }
+    .manual-grid { gap: 10px 14px; }
+}
+
+/* ============================================================
+   DESKTOP — die Kamera-/Eingabe-Teile bleiben handy-groß,
+   auch wenn die Seite breiter ist. Sonst wirkt der Scanner auf
+   dem Monitor riesig und alles andere winzig daneben.
+   ============================================================ */
+@media (min-width: 900px) {
+    .video-wrap {
+        max-width: 380px;
+        margin: 0 auto 18px;
+        aspect-ratio: 3 / 4;
+    }
+
+    /* Überschriften/Hinweise mittig über der Kamera */
+    #step-scan h1,
+    #step-features h1,
+    #step-style h1 { text-align: center; }
+    #step-scan .guide-hint,
+    #step-features .guide-hint { text-align: center; }
+    #step-scan > .chip-alt { display: block; margin-left: auto; margin-right: auto; width: fit-content; }
+
+    /* Haupt-Buttons nicht über die volle Breite spannen */
+    .btn-main {
+        display: block;
+        max-width: 480px;
+        margin-left: auto;
+        margin-right: auto;
+    }
+
+    /* Formulare und Karten auf eine gut lesbare Breite begrenzen */
+    #step-features .manual-grid,
+    #step-style .style-grid,
+    #step-style textarea,
+    #step-style .chip-container,
+    #step-style #feature-search,
+    #step-style .hud-label,
+    #step-style > div[style*="flex"] { max-width: 660px; margin-left: auto; margin-right: auto; }
+    #feature-search { display: block; }
+
+    .manual-grid { grid-template-columns: 160px 1fr; gap: 12px 18px; }
+    .manual-grid input { padding: 14px 16px; font-size: 15px; }
+
+    /* Gespeichertes-Profil-Karte unter der Kamera zentrieren */
+    #saved-face-card { max-width: 660px; margin-left: auto; margin-right: auto; }
+}
+
+/* ============================================================
+   VIDEO TUTORIALS (YouTube results)
+   ============================================================ */
+#video-tutorials {
+    margin-bottom: 22px;
+    padding: 16px;
+    background: var(--card);
+    border: 1px solid #222;
+    border-radius: 22px;
+}
+
+.video-list {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+}
+
+.video-card {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    background: #141414;
+    border: 1px solid #2a2a2a;
+    border-radius: 14px;
+    padding: 10px;
+    text-decoration: none;
+    color: #fff;
+    transition: border-color 0.2s;
+}
+
+.video-card:hover {
+    border-color: var(--primary);
+}
+
+.video-card img {
+    width: 96px;
+    height: 60px;
+    object-fit: cover;
+    border-radius: 10px;
+    flex-shrink: 0;
+    background: #000;
+}
+
+.video-title {
+    font-size: 0.82rem;
+    line-height: 1.35;
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+}
+
+.video-meta {
+    color: #777;
+    font-size: 0.72rem;
+    margin-top: 4px;
+}
+
+.video-more-row {
+    text-align: center;
+    margin-top: 12px;
+}
+
+.video-more-row a {
+    color: var(--primary);
+    font-size: 0.8rem;
+    font-weight: 700;
+    text-decoration: none;
+}

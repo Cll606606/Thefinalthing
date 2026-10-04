@@ -1,0 +1,354 @@
+/* ============================================================
+   base.css — das gemeinsame Design-System der ganzen App
+   ------------------------------------------------------------
+   Warum gibt es diese Datei? Früher hatte jede Seite ihr eigenes
+   Aussehen (Login grün, Wardrobe orange, Beauty pink) — das wirkte
+   nach drei verschiedenen Apps. Hier leben jetzt ALLE Farben, Abstände
+   und Bausteine (Buttons, Karten, Navigation) an EINEM Ort.
+   Die Marke heißt „Aestra" — unser Akzent ist ein ruhiges Teal statt
+   Pink, damit die App sich für Männer und Frauen gleich anfühlt.
+
+   So bleibt das Design überall gleich: wer eine Komponente ändert,
+   ändert sie automatisch überall. Und am Handy sieht alles sauber aus,
+   weil die wichtigsten Komponenten hier auch mobil gestylt sind.
+   ============================================================ */
+
+:root {
+    /* Farben = das Marken-Gesicht der App */
+    --bg: #0a0a0f;              /* fast schwarz, ruhiger Bildschirmhintergrund */
+    --bg-soft: #12121a;         /* leicht aufgehellte Flächen (Cards) */
+    --card: #16161f;            /* Karten ohne aktiven Zustand */
+    --border: #26262e;          /* feine Trennlinien */
+    --primary: #14b8a6;        /* Hauptakzent (Teal) — ruhig, geschlechtsneutral */
+    --accent-deep: #0f766e;    /* dunkleres Teal als Gradient-Ende */
+    --accent: #5ef2c3;          /* Erfolgsfarbe (gespart, grün, "ok") */
+    --text: #f2f2f4;            /* Haupttext */
+    --muted: #9a9aa8;           /* gedämpfter Text / Beschreibungen */
+    --danger: #ff6b6b;          /* Fehler / Löschen */
+    --radius: 16px;             /* einheitliche Rundung */
+    --shadow: 0 10px 30px rgba(0, 0, 0, .35);
+
+    /* ---- Dark Academia: Buttons ----
+       Schwarz + weisse Schrift statt Farbverlauf. Der Akzentteal bleibt
+       fuer Links, Status und Messwerte erhalten, damit die Seite nicht
+       farblos wirkt. "Gewaehlt" wird durch Weiss invertiert, nicht durch
+       Farbe — das haelt die Optik streng zweifarbig. */
+    --btn-bg: #000000;
+    --btn-fg: #ffffff;
+    --btn-border: #2e2e2e;
+    --btn-border-hover: #6a6a6a;
+    --btn-active-bg: #ffffff;  /* Auswahl = invertiert */
+    --btn-active-fg: #000000;
+}
+
+/* Grundlayout: dunkler Hintergrund + angenehme Schrift */
+* { box-sizing: border-box; margin: 0; padding: 0; }
+html { -webkit-text-size-adjust: 100%; }
+body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: 'Inter', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    line-height: 1.5;
+    min-height: 100vh;
+    -webkit-font-smoothing: antialiased;
+}
+
+a { color: var(--primary); text-decoration: none; }
+a:hover { text-decoration: underline; }
+
+/* ============================================================
+   TOP-BAR  — oben auf content-Seiten (Hub, Settings…)
+   ------------------------------------------------------------
+   Links der Titel, rechts das Menü/der Nutzer. Auf dem Handy bleibt
+   sie schmal und touch-freundlich.
+   ============================================================ */
+.topbar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    position: sticky;
+    top: 0;
+    z-index: 50;
+    padding: 14px 20px;
+    background: rgba(10, 10, 15, .85);
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
+    border-bottom: 1px solid var(--border);
+}
+
+.topbar-brand {
+    font-weight: 800;
+    font-size: 18px;
+    letter-spacing: -.3px;
+    background: linear-gradient(90deg, var(--primary), var(--accent-deep));
+    -webkit-background-clip: text;
+    background-clip: text;
+    -webkit-text-fill-color: transparent;
+    color: transparent;
+}
+
+.topbar-right { display: flex; align-items: center; gap: 10px; }
+
+/* ============================================================
+   AVATAR  — Kreis mit dem ersten Buchstaben des Benutzers.
+   Persönlicher als nur ein Text und braucht kein Foto-Upload-System.
+   ============================================================ */
+.avatar {
+    width: 38px;
+    height: 38px;
+    border-radius: 50%;
+    background: linear-gradient(135deg, var(--primary), var(--accent-deep));
+    color: #0a0a0f;
+    font-weight: 900;
+    font-size: 17px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+}
+
+/* Ein gezeichneter Kreis für flache Buttons (Login/Hub) */
+.icon-btn {
+    width: 42px;
+    height: 42px;
+    border-radius: 12px;
+    background: var(--btn-bg);
+    border: 1px solid var(--btn-border);
+    color: var(--btn-fg);
+    font-size: 18px;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: .2s;
+}
+.icon-btn:hover { border-color: var(--btn-border-hover); }
+
+/* ============================================================
+   BUTTONS
+   - .btn:    der Standard-Button (Teal-Verlauf)
+   - .btn-ghost: dezenter Zusatz-Button (Rahmen)
+   - .btn-danger: roter Button für destruktive Aktionen
+   ============================================================ */
+.btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    width: 100%;
+    padding: 15px 20px;
+    border: 1px solid var(--btn-border);
+    border-radius: 14px;
+    font-size: 15px;
+    font-weight: 800;
+    letter-spacing: .02em;
+    color: var(--btn-fg);
+    background: var(--btn-bg);
+    cursor: pointer;
+    transition: transform .1s ease, border-color .2s ease, background .2s ease;
+}
+.btn:hover {
+    border-color: var(--btn-border-hover);
+    background: #0d0d0d;
+}
+.btn:active { transform: scale(.98); }
+.btn:disabled { opacity: .5; cursor: wait; }
+
+.btn-ghost {
+    background: var(--btn-bg);
+    border: 1px solid var(--btn-border);
+    color: var(--btn-fg);
+}
+.btn-ghost:hover { border-color: var(--btn-border-hover); background: #0d0d0d; }
+
+/* Destruktive Aktionen: schwarz wie alle anderen, nur mit rotem Haar-
+   saum als Warnsignal — kein rot gefuellter Button, das bricht die
+   zweifarbige Optik. */
+.btn-danger {
+    background: var(--btn-bg);
+    color: var(--btn-fg);
+    border-color: rgba(255, 107, 107, .55);
+}
+.btn-danger:hover { border-color: var(--danger); background: #160a0a; }
+
+/* ============================================================
+   CARDS & EINGABEFELDER  — die Grundbausteine der App
+   ============================================================ */
+.card {
+    background: var(--bg-soft);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 20px;
+}
+
+label {
+    display: block;
+    font-size: 11px;
+    font-weight: 800;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    color: var(--muted);
+    margin: 18px 0 8px;
+}
+
+input[type="text"],
+input[type="email"],
+input[type="password"],
+input[type="number"],
+select,
+textarea {
+    width: 100%;
+    padding: 14px 15px;
+    border-radius: 12px;
+    border: 1px solid var(--border);
+    background: var(--bg-soft);
+    color: var(--text);
+    font-size: 15px;
+    font-family: inherit;
+    outline: none;
+    transition: border-color .2s;
+}
+input:focus, select:focus, textarea:focus { border-color: var(--primary); }
+input::placeholder, textarea::placeholder { color: #5c5c6b; }
+
+/* ============================================================
+   NAV-BAR UNTEN  — die Handy-Navigation.
+   ------------------------------------------------------------
+   Auf dem Handy ist eine Navigation unten natürlicher (der Daumen
+   kommt leichter hin). Auf dem Desktop zeigen wir dieselben Links
+   stattdessen als eigenes Menü oben links in der Top-Bar.
+   ============================================================ */
+.bottom-nav {
+    position: fixed;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    z-index: 60;
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    background: rgba(12, 12, 18, .92);
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
+    border-top: 1px solid var(--border);
+    padding: 8px 4px env(safe-area-inset-bottom);
+}
+
+.nav-item {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 3px;
+    padding: 8px 4px;
+    font-size: 11px;
+    font-weight: 700;
+    color: var(--muted);
+    border: none;
+    background: transparent;
+    cursor: pointer;
+    text-decoration: none;
+}
+.nav-item span { font-size: 20px; }
+.nav-item.active { color: var(--primary); }
+.nav-item:hover { text-decoration: none; color: var(--primary); }
+
+/* Desktop: Navigation wandert nach oben in die Top-Bar */
+.desktop-nav { display: none; align-items: center; gap: 6px; }
+.desktop-nav a, .desktop-nav button {
+    padding: 9px 14px;
+    border-radius: 10px;
+    font-size: 14px;
+    font-weight: 700;
+    color: var(--muted);
+    border: none;
+    background: transparent;
+    cursor: pointer;
+    text-decoration: none;
+}
+.desktop-nav a:hover, .desktop-nav button:hover,
+.desktop-nav .active { color: var(--text); background: var(--bg-soft); }
+
+@media (min-width: 900px) {
+    .desktop-nav { display: flex; }
+    .bottom-nav { display: none; }
+}
+
+/* ============================================================
+   TOAST  — kleine Erfolgs-/Fehler-Meldung unten auf der Seite.
+   ============================================================ */
+#toast {
+    position: fixed;
+    left: 50%;
+    bottom: 90px;
+    transform: translateX(-50%) translateY(30px);
+    background: var(--bg-soft);
+    border: 1px solid var(--border);
+    color: var(--text);
+    padding: 12px 20px;
+    border-radius: 14px;
+    font-size: 14px;
+    font-weight: 700;
+    opacity: 0;
+    pointer-events: none;
+    transition: .3s;
+    z-index: 100;
+    max-width: 90vw;
+    text-align: center;
+    box-shadow: var(--shadow);
+}
+#toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
+#toast.err { border-color: var(--danger); color: var(--danger); }
+
+/* ============================================================
+   FEHLER-BOX  — aufgeräumte Meldung über Fehler in Formularen.
+   ============================================================ */
+.errbox {
+    display: none;
+    margin-top: 16px;
+    background: rgba(255, 107, 107, .1);
+    border: 1px solid rgba(255, 107, 107, .35);
+    color: #ffc9c9;
+    padding: 12px 14px;
+    border-radius: 12px;
+    font-size: 13px;
+    line-height: 1.5;
+}
+
+/* ============================================================
+   SEITEN-WRAPPER  — zentrierter Inhalt mit Abstand zur Bottom-Nav
+   ============================================================ */
+.page {
+    max-width: 640px;
+    margin: 0 auto;
+    padding: 24px 20px calc(90px + env(safe-area-inset-bottom));
+}
+
+.page h1 { font-size: 24px; font-weight: 800; letter-spacing: -.4px; }
+.page h2 { font-size: 17px; font-weight: 800; margin-bottom: 12px; }
+.page p.sub { color: var(--muted); font-size: 14px; margin: 6px 0 18px; }
+
+/* Formular-Bereiche leicht getrennt für Übersicht */
+.section { margin-top: 28px; }
+
+/* ============================================================
+   LISTEN-EINTRAG (Menüzeile für Einstellungen u.ä.)
+   ============================================================ */
+.row-item {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    width: 100%;
+    padding: 15px 8px;
+    background: transparent;
+    border: none;
+    border-bottom: 1px solid var(--border);
+    color: var(--text);
+    font-size: 15px;
+    font-weight: 700;
+    text-align: left;
+    cursor: pointer;
+}
+.row-item span { color: var(--muted); font-size: 16px; }
+.row-item:hover { color: var(--primary); }
+.row-item.danger { color: var(--danger); }

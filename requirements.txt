@@ -1,4 +1,18 @@
-Flask
-mediapipe
-opencv-python
-numpy
+# ============================================================
+#  Server-Abhängigkeiten für das Hosting
+# ============================================================
+#  Wichtig: MediaPipe, opencv-python und numpy sind hier NICHT
+#  aufgeführt. Die Gesichtsanalyse läuft komplett im Browser
+#  (MediaPipe FaceMesh via CDN, WebAssembly) — serverseitig werden
+#  nur Pillow (Bildverkleinern) und requests (KI-Aufrufe) gebraucht.
+#
+#  Vorher standen hier mediapipe + opencv + numpy: Das waren rund
+#  400 MB zusätzliche Abhängigkeiten, die den Build auf dem
+#  Hosting-Anbieter unnötig langsam und fehleranfällig gemacht haben.
+# ============================================================
+
+Flask>=3.0
+gunicorn>=21.2          # Produktions-Webserver (nicht der Flask-Dev-Server)
+requests>=2.31
+certifi>=2024.2.2       # TLS-Wurzelzertifikate für die API-Aufrufe
+Pillow>=10.2            # Bilder verkleinern, bevor sie an die KI gehen

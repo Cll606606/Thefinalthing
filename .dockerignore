@@ -1,0 +1,14 @@
+# Nicht ins Image kopieren
+.git
+.gitignore
+.env
+.secret_key
+styleai.db
+*.db
+certs/
+__pycache__/
+*.pyc
+.DS_Store
+.vscode
+.idea
+/tmp

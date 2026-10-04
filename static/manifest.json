@@ -1,0 +1,57 @@
+{
+  "name": "My Style — AI Wardrobe & Beauty Lab",
+  "short_name": "My Style",
+  "description": "Kleiderschrank-Logik: Analyse und Empfehlungen starten bei dem, was du bereits besitzt — lokal im Browser, mit offengelegten Messwerten.",
+  "lang": "de",
+  "dir": "ltr",
+  "start_url": "/?source=pwa",
+  "scope": "/",
+  "id": "/",
+  "display": "standalone",
+  "display_override": ["standalone", "minimal-ui", "browser"],
+  "orientation": "portrait-primary",
+  "background_color": "#000000",
+  "theme_color": "#000000",
+  "categories": ["lifestyle", "shopping", "beauty", "productivity"],
+  "prefer_related_applications": false,
+  "icons": [
+    {
+      "src": "/static/icons/icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/static/icons/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/static/icons/icon-maskable-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "maskable"
+    },
+    {
+      "src": "/static/icons/logo.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any"
+    }
+  ],
+  "shortcuts": [
+    {
+      "name": "Beauty Lab",
+      "short_name": "Beauty",
+      "description": "Gesichtsanalyse starten",
+      "url": "/beauty?source=pwa-shortcut"
+    },
+    {
+      "name": "Style Lab",
+      "short_name": "Wardrobe",
+      "description": "Kleiderschrank öffnen",
+      "url": "/wardrobe?source=pwa-shortcut"
+    }
+  ]
+}

@@ -1,0 +1,40 @@
+# ============================================================
+#  Render Blueprint — Ein-Klick-Deployment
+#  https://render.com/docs/blueprint-spec
+# ============================================================
+services:
+  - type: web
+    name: my-style
+    runtime: python
+    plan: free          # auf "starter" wechseln, wenn ein Plattenlauf noetig ist
+    region: frankfurt   # eu-central, nah bei dir
+    branch: main
+    buildCommand: pip install -r requirements.txt
+    startCommand: gunicorn app:app --bind 0.0.0.0:$PORT --workers 2 --threads 4 --timeout 120 --access-logfile - --error-logfile -
+    healthCheckPath: /healthz
+
+    # WICHTIG: Ohne diese Variablen startet die App, aber ohne
+    # KI-Funktionen (Frisuren, Outfits, Produktbeschreibung) und
+    # ohne Produkt-/Videosuche. Werte werden im Render-Dashboard
+    # unter "Environment" eingetragen — NICHT in diese Datei.
+    envVars:
+      - key: SECRET_KEY
+        generateValue: true          # Render erzeugt einen sicheren Zufallswert
+      - key: PYTHON_VERSION
+        value: "3.12.8"
+      - key: AESTRA_DEBUG
+        value: "0"
+      - key: AESTRA_HOST
+        value: "0.0.0.0"
+      - key: FORCE_SECURE_COOKIES
+        value: "1"
+      - key: DATABASE_PATH
+        value: /data/styleai.db
+      # >>> HIER MANUELL EINFUEGEN (sync: false) <<<
+      # - key: GEMINI_API_KEY
+      # - key: SERPER_API_KEY
+
+    disk:
+      name: my-style-data
+      mountPath: /data
+      sizeGB: 1
