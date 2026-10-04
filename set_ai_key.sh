@@ -44,23 +44,46 @@ print("  .env aktualisiert (nur lokal, steht in .gitignore)")
 PY
 
 # ---- 2) Gegenprobe ----------------------------------------------------------
-python3 - "$KEY" <<'PY'
-import sys, json, urllib.request
+# certifi wird bewusst benutzt: urllib.request nutzt den Zertifikatsspeicher
+# des Betriebssystems und meldet sonst SSL-Fehler, die gar keine sind.
+python3 - "$KEY" <<'PYEOF'
+import sys, json
+try:
+    import requests
+    _get, _post = requests.get, None
+except ImportError:
+    requests = None
+    import certifi, urllib.request
+    def _get(url, **kw):
+        kw.pop("timeout", None)
+        ctx = __import__("ssl").create_default_context(cafile=certifi.where())
+        with urllib.request.urlopen(url, timeout=30, context=ctx) as r:
+            return json.loads(r.read().decode())
+    def _post(url, body, **kw):
+        ctx = __import__("ssl").create_default_context(cafile=certifi.where())
+        req = urllib.request.Request(url, data=body,
+                                     headers={"Content-Type": "application/json"})
+        with urllib.request.urlopen(req, timeout=30, context=ctx) as r:
+            return json.loads(r.read().decode())
+
 key = sys.argv[1]
 url = ("https://generativelanguage.googleapis.com/v1beta/models/"
        "gemini-3.8-flash:generateContent?key=" + key)
 body = json.dumps({"contents": [{"parts": [{"text": "Antworte mit einem Wort: ok"}]}],
                    "generationConfig": {"maxOutputTokens": 200}}).encode()
-req = urllib.request.Request(url, data=body,
-                             headers={"Content-Type": "application/json"})
 try:
-    with urllib.request.urlopen(req, timeout=30) as r:
-        data = json.load(r)
+    if requests is not None:
+        r = requests.post(url, data=body, timeout=30,
+                          headers={"Content-Type": "application/json"})
+        r.raise_for_status()
+        data = r.json()
+    else:
+        data = _post(url, body)
     print("  Schluessel geprueft:", data["candidates"][0]["content"]["parts"][0]["text"].strip())
 except Exception as exc:
-    print("  WARNUNG: Der Schluessel hat nicht geantwortet:", str(exc)[:120])
+    print("  WARNUNG: Der Schluessel hat nicht geantwortet:", str(exc)[:140])
     sys.exit(1)
-PY
+PYEOF
 
 cat <<'EOF'
 
