@@ -354,9 +354,145 @@ function stableValue(
 }
 
 
+/* ============================================================
+   HYSTERESE
+   ------------------------------------------------------------
+   Harte Schwellen springen, wenn der Messwert genau auf ihnen
+   liegt — auch nicht mehr durch den Median. Test: Augenverhaeltnis
+   0,444 bei Schwelle 0,44 ergab 49 Labelwechsel in 150 Frames bei
+   sonst ruhigem Gesicht.
+
+   Deshalb zaehlt ein Wechsel erst, wenn der Wert die betroffene
+   Grenze zusaetzlich um HYSTERESIS ueberschritten hat. Innerhalb
+   des Bandes bleibt das vorherige Label stehen. Komfortabel
+   innerhalb eines Bandes gemessen ist alles stabil, deshalb ist
+   der Bandrand schmal genug fuer eine schnelle Reaktion.
+   ============================================================ */
+
+const HYSTERESIS = 0.02;
+const HYSTERESIS_DEG = 1.5;
+
+const labelState = {};
+
+/* value >= cuts[i] fuer jedes i zaehlt eine Stufe hoch.
+   labels[index] ist das Ergebnis. */
+
+function labelWithHysteresis(
+    key,
+    value,
+    cuts,
+    labels,
+    margin = HYSTERESIS
+) {
+
+    if (!Number.isFinite(value)) return labels[0];
+
+    let idx = 0;
+
+    while (
+        idx < cuts.length &&
+        value >= cuts[idx]
+    ) {
+
+        idx++;
+
+    }
+
+    const prev =
+        labelState[key];
+
+    if (
+        prev !== undefined &&
+        prev !== idx
+    ) {
+
+        /* die Grenze, die gerade ueberschritten wurde. In beide
+           Richtungen existiert sie: idx > prev braucht cuts[prev],
+           idx < prev braucht cuts[prev - 1]. */
+
+        const cut =
+            idx > prev
+                ? cuts[prev]
+                : cuts[prev - 1];
+
+        const confirmed =
+            idx > prev
+                ? value >= cut + margin
+                : value <= cut - margin;
+
+        if (!confirmed) {
+
+            labelState[key] = prev;
+            return labels[prev];
+
+        }
+
+    }
+
+    labelState[key] = idx;
+
+    return labels[idx];
+
+}
+
+
+/* Tilt ist nicht monoton (+ = aufwaerts, - = abwaerts), daher eine
+   eigene, symmetrische Variante mit derselben Logik. */
+
+const TILT_LABELS = ["Downturned", "Neutral", "Upturned"];
+
+function tiltWithHysteresis(value) {
+
+    if (!Number.isFinite(value)) return TILT_LABELS[1];
+
+    const idx =
+        value > 3
+            ? 2
+            : (value < -3 ? 0 : 1);
+
+    const prev =
+        labelState.eyeTilt;
+
+    if (
+        prev !== undefined &&
+        prev !== idx
+    ) {
+
+        const need =
+            idx > prev
+                ? (prev === 0 ? -3 + HYSTERESIS_DEG : 3 + HYSTERESIS_DEG)
+                : (prev === 2 ? 3 - HYSTERESIS_DEG : -3 - HYSTERESIS_DEG);
+
+        const confirmed =
+            idx > prev
+                ? value >= need
+                : value <= need;
+
+        if (!confirmed) {
+
+            labelState.eyeTilt = prev;
+            return TILT_LABELS[prev];
+
+        }
+
+    }
+
+    labelState.eyeTilt = idx;
+
+    return TILT_LABELS[idx];
+
+}
+
+
 function resetHistory() {
 
     for (const key in history) history[key].length = 0;
+
+    /* Beim Wechsel der Quelle auch den Label-Zustand loeschen,
+       sonst blockiert die Hysterese den ersten Wert der neuen
+       Quelle, bis die alte Grenze ueberschritten ist. */
+
+    for (const key in labelState) delete labelState[key];
 
 }
 
@@ -1113,11 +1249,33 @@ function handleResults(results) {
         0;
 
     if (!srcW || !srcH) {
+
+        /* Das Video liefert noch keine Groesse. Bisher geschah hier
+           stillschweigend nichts: handleResults kehrt zurueck, es werden
+           keine Merkmale geschrieben, alle Felder bleiben leer — der
+           Nutzer sah keinen Grund und tippte alles von Hand. Jetzt wird
+           das einmal sichtbar gemeldet, damit es nicht bei jedem Frame
+           blinkt. */
+
         window._sourceSizePending = true;
+        window._pendingFrames = (window._pendingFrames || 0) + 1;
+
+        if (window._pendingFrames === 30) {
+
+            mediaPipeWarning(
+                'the camera image still has no size — the video is not ' +
+                'playing. Check the camera permission, or use ' +
+                '"Upload a photo" instead.'
+            );
+
+        }
+
         return;
+
     }
 
     window._sourceSizePending = false;
+    window._pendingFrames = 0;
 
     analysisCanvas.width = srcW;
     analysisCanvas.height = srcH;
@@ -1687,24 +1845,13 @@ function handleResults(results) {
     window._eyeAperture = eyeRatio;
     window._eyeClosed = eyeRatio < 0.12;
 
-    if (eyeStable > 0.44) {
-
-        window.features.eyes =
-            "Round";
-
-    }
-    else if (eyeStable > 0.27) {
-
-        window.features.eyes =
-            "Almond";
-
-    }
-    else {
-
-        window.features.eyes =
-            "Narrow / Hooded";
-
-    }
+    window.features.eyes =
+        labelWithHysteresis(
+            "eyes",
+            eyeStable,
+            [0.27, 0.44],
+            ["Narrow / Hooded", "Almond", "Round"]
+        );
 
 
     /* ========================================================
@@ -1853,24 +2000,10 @@ function handleResults(results) {
             smooth.tilt
         );
 
-    if (tiltStable < -3) {
-
-        window.features.eyeTilt =
-            "Downturned";
-
-    }
-    else if (tiltStable > 3) {
-
-        window.features.eyeTilt =
-            "Upturned";
-
-    }
-    else {
-
-        window.features.eyeTilt =
-            "Neutral";
-
-    }
+    window.features.eyeTilt =
+        tiltWithHysteresis(
+            tiltStable
+        );
 
 
     /* ========================================================
@@ -1938,24 +2071,13 @@ function handleResults(results) {
             smooth.lip
         );
 
-    if (lipStable > 0.36) {
-
-        window.features.lips =
-            "Full";
-
-    }
-    else if (lipStable > 0.22) {
-
-        window.features.lips =
-            "Balanced";
-
-    }
-    else {
-
-        window.features.lips =
-            "Thin";
-
-    }
+    window.features.lips =
+        labelWithHysteresis(
+            "lips",
+            lipStable,
+            [0.22, 0.36],
+            ["Thin", "Balanced", "Full"]
+        );
 
 
     /* ========================================================
@@ -2150,24 +2272,13 @@ function handleResults(results) {
             smooth.brow
         );
 
-    if (browStable > 0.15) {
-
-        window.features.brows =
-            "High Arch";
-
-    }
-    else if (browStable > 0.06) {
-
-        window.features.brows =
-            "Soft Arch";
-
-    }
-    else {
-
     window.features.brows =
-        "Straight";
-
-}
+        labelWithHysteresis(
+            "brows",
+            browStable,
+            [0.06, 0.15],
+            ["Straight", "Soft Arch", "High Arch"]
+        );
 
 /* Samples nach jeder stabilen Messung in die Historie werfen
    (nur wenn die Augen nicht gerade geschlossen sind, sonst droht
@@ -2278,6 +2389,58 @@ function isCameraRunning() {
 }
 
 
+/* Wartet, bis das Video wirklich Frames hat. videoWidth wird erst
+   gesetzt, wenn der Decoder den ersten Frame geliefert hat — direkt
+   nach start() ist es oft noch 0. Ohne dieses Warten meldet der
+   Quellgroessen-Test in handleResults faelschlich "Quelle liefert
+   nichts". */
+
+function waitForVideoReady(timeoutMs = 4000) {
+
+    return new Promise((resolve) => {
+
+        if (video.videoWidth && video.videoHeight) {
+
+            resolve(true);
+            return;
+
+        }
+
+        const started = Date.now();
+
+        const tick = () => {
+
+            if (video.videoWidth && video.videoHeight) {
+
+                resolve(true);
+
+            }
+            else if (Date.now() - started > timeoutMs) {
+
+                mediaPipeWarning(
+                    'the camera started but delivered no image after ' +
+                    Math.round(timeoutMs / 1000) +
+                    ' s — close other apps using the camera, or use ' +
+                    '"Upload a photo".'
+                );
+                resolve(false);
+
+            }
+            else {
+
+                setTimeout(tick, 100);
+
+            }
+
+        };
+
+        tick();
+
+    });
+
+}
+
+
 async function startCameraStream() {
 
     if (isCameraRunning()) return true;
@@ -2313,8 +2476,35 @@ async function startCameraStream() {
                         }
                         catch (e) {
 
-                            /* ein einzelner fehlgeschlagener Frame
-                               darf nicht die ganze Schleife killen */
+                            /* Ein einzelner fehlgeschlagener Frame darf
+                               die Schleife nicht killen — aber er darf
+                               auch nicht spurlos verschwinden. Sonst
+                               bleibt bei einem echten Fehler die
+                               Oberflaeche einfach leer, ohne jeden
+                               Hinweis. Der erste Fehler wird gemeldet,
+                               danach nur noch gezaehlt. */
+
+                            window._frameErrors =
+                                (window._frameErrors || 0) + 1;
+
+                            if (window._frameErrors === 1) {
+
+                                console.error(
+                                    'Aestra: FaceMesh frame failed —',
+                                    e
+                                );
+
+                            }
+
+                            if (window._frameErrors === 60) {
+
+                                mediaPipeWarning(
+                                    '60 camera frames could not be ' +
+                                    'processed — reload the page or use ' +
+                                    '"Upload a photo".'
+                                );
+
+                            }
 
                         }
 
@@ -2328,6 +2518,43 @@ async function startCameraStream() {
             );
 
             await candidate.start();
+
+            /* Ohne diese drei Zeilen startet das Video auf iOS/Safari
+               nicht: die Autoplay-Richtlinie verlangt bei einem
+               Videostream muted, und playsinline, damit er nicht in
+               den Vollbild schaltet. Ohne playing Bild laeuft der Stream
+               trotzdem, aber videoWidth bleibt 0 — und dann liefert
+               handleResults nichts und alle Felder bleiben leer.
+               camera_utils setzt muted zwar, das haengt aber an der
+               geladenen Version und ist hier nicht ausdruecklich
+               abgesichert. */
+
+            video.muted = true;
+            video.playsInline = true;
+
+            try {
+
+                await video.play();
+
+            }
+            catch (e) {
+
+                /* autoplay abgelehnt: der Klick auf "INITIALIZE SCAN"
+                   ist die Nutzergeste, aber manche Browser blockieren
+                   trotzdem. Ohne playing gibt es keine Groesse und
+                   damit keine Merkmale — also sichtbar machen. */
+
+                mediaPipeWarning(
+                    'the browser blocked video playback (' +
+                    (e && e.name ? e.name : 'autoplay') +
+                    ') — tap INITIALIZE SCAN again'
+                );
+
+                return false;
+
+            }
+
+            await waitForVideoReady();
 
             cam = candidate;
             window.cameraActive = true;
