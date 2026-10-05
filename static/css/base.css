@@ -53,6 +53,11 @@
     --pick-fg: #d9d9e0;
     --pick-border: #2e2e2e;
     --pick-hover-border: #6a6a6a;
+
+    /* Browser-Native-Elemente mitziehen: Auswahllisten, Datumsauswahl,
+       Spinner und Scrollbalken. Ohne das malt Safari/iOS seine
+       Bedienelemente weiterhin hell. */
+    color-scheme: dark;
 }
 
 /* Grundlayout: dunkler Hintergrund + angenehme Schrift */
@@ -209,10 +214,15 @@ label {
     margin: 18px 0 8px;
 }
 
-input[type="text"],
-input[type="email"],
-input[type="password"],
-input[type="number"],
+/* Alle Eingabefelder — nicht nur einzelne type-Werte.
+   Vorher stand hier input[type="text"], input[type="email"], ... Das
+   trifft aber weder <input> ganz ohne type-Attribut (die ganzen
+   Login-/Registrierungsfelder) noch date/time/tel/url/file. Alles,
+   was nicht getroffen wurde, erbt den Browser-Standard und wird
+   weiss. Diese Liste schliesst daher nur die Felder aus, die ein
+   eigenes Aussehen brauchen, und erwischt damit auch kuenftige
+   type-Werte automatisch. */
+input:not([type="checkbox"]):not([type="radio"]):not([type="range"]),
 select,
 textarea {
     width: 100%;
@@ -228,6 +238,46 @@ textarea {
 }
 input:focus, select:focus, textarea:focus { border-color: var(--primary); }
 input::placeholder, textarea::placeholder { color: #5c5c6b; }
+
+/* Auswahlfelder: der Browser malt die Liste im hellen Systemdesign,
+   das sieht auf einer dunklen Seite aus wie ein weisses Loch. */
+select option { background: var(--bg-soft); color: var(--text); }
+
+/* Kontrollkaestchen und Radio-Buttons: unangehakt ist der Browser-
+   Standard ein weisses Kästchen. */
+input[type="checkbox"],
+input[type="radio"] {
+    accent-color: var(--primary);
+    width: 18px;
+    height: 18px;
+    cursor: pointer;
+}
+
+/* Datei-Auswahl: der native Knopf ist ebenfalls hell. */
+input[type="file"] {
+    width: 100%;
+    padding: 12px 15px;
+    border-radius: 12px;
+    border: 1px dashed var(--border);
+    background: var(--bg-soft);
+    color: var(--text);
+    font-size: 14px;
+    font-family: inherit;
+    cursor: pointer;
+}
+input[type="file"]::file-selector-button {
+    margin-right: 12px;
+    padding: 8px 14px;
+    border: 1px solid var(--btn-border);
+    border-radius: 8px;
+    background: var(--btn-bg);
+    color: var(--btn-fg);
+    font: inherit;
+    font-weight: 700;
+    font-size: 13px;
+    cursor: pointer;
+}
+input[type="file"]::file-selector-button:hover { border-color: var(--btn-border-hover); }
 
 /* ============================================================
    NAV-BAR UNTEN  — die Handy-Navigation.
