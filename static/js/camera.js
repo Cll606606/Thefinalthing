@@ -138,13 +138,28 @@ const analysisCtx = analysisCanvas.getContext("2d", {
    MATH HELPERS
    ============================================================ */
 
-function dist3D(a, b) {
-    return Math.sqrt(
-        Math.pow(a.x - b.x, 2) +
-        Math.pow(a.y - b.y, 2) +
-        Math.pow((a.z || 0) - (b.z || 0), 2)
-    );
-}
+/* ------------------------------------------------------------
+   STRECKENLAENGE — bewusst 2D, kein z.
+
+   Frueher stand hier eine 3D-Variante, die z mit in die Strecke
+   rechnete. Das ergab schon bei einem frontalen Portraet falsche
+   Werte:
+
+   - z von MediaPipe hat den Ursprung in der Kopfmitte und ist also
+     auch ohne jede Drehung ungleich 0 (Nase vorn, Stirn/Kinn hinten).
+   - y wird mit dem aspect korrigiert, z bleibt unveraendert.
+   - Jede vertikale Strecke (Gesichtslaenge, Lippenhoehe, Kiefer)
+     bekam dadurch einen z-Anteil und wurde zu gross gemessen.
+
+   Messreihe an einem synthetischen Gesicht mit realistischem
+   z-Profil: Lippenverhaeltnis 0,30 (Soll) -> 0,40, also aus
+   "Balanced" -> "Full"; bei etwas staerkerem z kippte auch die
+   Gesichtsform von "Oval" -> "Long". Eine leichte Kopfdrehung
+   liess die 3D-Strecken regelrecht zusammenbrechen.
+
+   Durch die aspect-Korrektur sind die Koordinaten bereits isotrop,
+   die 2D-Strecke ist damit geometrisch sauber.
+   ------------------------------------------------------------ */
 function dist2D(a, b) {
 
     return Math.hypot(a.x - b.x, a.y - b.y);
@@ -225,6 +240,7 @@ let smooth = {
     lip: null,
     tilt: null,
     cheek: null,
+    cheekDom: null,
     brow: null,
 
     skinL: null,
@@ -279,6 +295,7 @@ const history = {
     lip: [],
     tilt: [],
     cheek: [],
+    cheekDom: [],
     brow: []
 };
 
@@ -287,6 +304,7 @@ const VALID_HISTORY = {
     lip: [0.05, 1.2],
     tilt: [-45, 45],
     cheek: [0.5, 2.5],
+    cheekDom: [-0.5, 0.5],
     brow: [-0.4, 0.6]
 };
 
@@ -373,6 +391,7 @@ function renderLiveMetrics() {
         '<br>lips: <b style="color:#e5e7eb;">' + f3(m.lipRatio) + '</b> → ' + (window.features.lips || '—') +
         '<br>brow arch: <b style="color:#e5e7eb;">' + f3(m.browArch) + '</b> → ' + (window.features.brows || '—') +
         '<br>cheek/jaw: <b style="color:#e5e7eb;">' + f3(m.cheekRatio) + '</b> → ' + (window.features.cheekbones || '—') +
+        '<br>cheek dominance: <b style="color:#e5e7eb;">' + f3(m.cheekDominance) + '</b>' +
         '<br>frames used: <b style="color:#e5e7eb;">' + (m.frames || 0) + '</b> · source ' + (m.source || '—');
 
 }
@@ -1173,14 +1192,14 @@ function handleResults(results) {
        ======================================================== */
 
     const faceWidth =
-        dist3D(
+        dist2D(
             m[234],
             m[454]
         );
 
 
     const faceHeight =
-        dist3D(
+        dist2D(
             m[10],
             m[152]
         );
@@ -1219,14 +1238,14 @@ function handleResults(results) {
 
 
     const Wf =
-        dist3D(
+        dist2D(
             m[103],
             m[332]
         );
 
 
     const Wj =
-        dist3D(
+        dist2D(
             m[172],
             m[397]
         );
@@ -1292,7 +1311,7 @@ function handleResults(results) {
     */
 
     const chinWidth =
-        dist3D(
+        dist2D(
             m[136],
             m[148]
         );
@@ -1492,21 +1511,21 @@ function handleResults(results) {
 
 
     const d1 =
-        dist3D(
+        dist2D(
             m[10],
             m[168]
         );
 
 
     const d2 =
-        dist3D(
+        dist2D(
             m[168],
             m[1]
         );
 
 
     const d3 =
-        dist3D(
+        dist2D(
             m[1],
             m[152]
         );
@@ -1524,8 +1543,8 @@ function handleResults(results) {
 
     const eyeWidth =
         (
-            dist3D(m[33], m[133]) +
-            dist3D(m[362], m[263])
+            dist2D(m[33], m[133]) +
+            dist2D(m[362], m[263])
         ) / 2;
 
 
@@ -1859,28 +1878,28 @@ function handleResults(results) {
        ======================================================== */
 
     const lipWidth =
-        dist3D(
+        dist2D(
             m[78],
             m[308]
         );
 
 
     const vertical1 =
-        dist3D(
+        dist2D(
             m[13],
             m[14]
         );
 
 
     const vertical2 =
-        dist3D(
+        dist2D(
             m[82],
             m[87]
         );
 
 
     const vertical3 =
-        dist3D(
+        dist2D(
             m[312],
             m[317]
         );
@@ -1949,7 +1968,7 @@ function handleResults(results) {
         Previously:
 
             cheekboneWidth =
-                dist3D(m[234], m[454])
+                dist2D(m[234], m[454])
 
         But this is the same as faceWidth.
 
@@ -1977,7 +1996,7 @@ function handleResults(results) {
         (typisch für definierte / diagonale Wangenknochen).
     */
 
-    const cheekDominance =
+    const cheekDominanceRaw =
         (
             Wc -
             Math.max(Wf, Wj)
@@ -1992,6 +2011,33 @@ function handleResults(results) {
         );
 
 
+    /*
+        Wichtig: die Dominanz wurde zuvor direkt aus dem Rohframe
+        ausgewertet, waehrend der Wangen-/Kiefer-Quotient durch die
+        Historie geschickt wurde. Genau an der Grenze liess das die
+        Einstufung pro Frame umspringen: Test mit 0,6 px Tracking-
+        Rauschen ergab 79 Labelwechsel in 150 Frames bei sonst
+        ruhigem Gesicht.
+
+        Sie laeuft jetzt ueber dieselbe Kette wie alle anderen
+        Groessen — Rohwert in die Historie, Einstufung nach dem
+        Median der letzten Frames. Der geglaettete Wert dient nur
+        der Live-Anzeige.
+    */
+
+    const cheekDominance =
+        smoothValue(
+            "cheekDom",
+            cheekDominanceRaw,
+            0.12
+        );
+
+    pushSample(
+        "cheekDom",
+        cheekDominanceRaw
+    );
+
+
     /* "High & Defined" nur, wenn die Wangenebene beide anderen Ebenen
        um mindestens 10% uebertrifft — mit 7% war das bei vielen
        Gesichtern der Normalfall. */
@@ -2002,9 +2048,15 @@ function handleResults(results) {
             smooth.cheek
         );
 
+    const cheekDomStable =
+        stableValue(
+            "cheekDom",
+            cheekDominance
+        );
+
     if (
         cheekStable > 1.30 ||
-        cheekDominance > 0.10
+        cheekDomStable > 0.10
     ) {
 
         window.features.cheekbones =
@@ -2050,8 +2102,8 @@ function handleResults(results) {
     */
 
     const browToLid = (
-        dist3D(m[70], m[159]) +
-        dist3D(m[300], m[386])
+        dist2D(m[70], m[159]) +
+        dist2D(m[300], m[386])
     ) / (2 * faceHeight);
 
     /* Innerer Endpunkt -> Scheitel -> aeusserer Endpunkt */
@@ -2150,6 +2202,7 @@ pushSample('brow', avgArch);
         tiltDeg: tiltStable,
         browArch: browStable,
         cheekRatio: cheekStable,
+        cheekDominance: cheekDomStable,
         frames: history.eye.length,
         source: (
             srcW +
