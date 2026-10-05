@@ -37,8 +37,22 @@
     --btn-fg: #ffffff;
     --btn-border: #2e2e2e;
     --btn-border-hover: #6a6a6a;
-    --btn-active-bg: #ffffff;  /* Auswahl = invertiert */
-    --btn-active-fg: #000000;
+
+    /* Auswahl. Frueher war das eine weiße Füllung mit schwarzer Schrift —
+       das fiel aus der zweifarbigen Optik heraus und sah auf dem
+       schwarzen Grund wie ein Fremdkörper aus. Jetzt ist die AUSWAHL
+       die dunkelste Fläche und wird am hellen Rahmen erkennbar. */
+    --btn-active-bg: #000000;
+    --btn-active-fg: #ffffff;
+    --btn-active-border: #ffffff;
+
+    /* Auswahl-Knöpfe (Chips, Tabs, Kacheln). Bewusst nicht ganz schwarz
+       wie die Hauptknöpfe, sonst ist der Unterschied zwischen "nicht
+       gewählt" und "gewählt" nur noch am Rahmen erkennbar. */
+    --pick-bg: #12121a;
+    --pick-fg: #d9d9e0;
+    --pick-border: #2e2e2e;
+    --pick-hover-border: #6a6a6a;
 }
 
 /* Grundlayout: dunkler Hintergrund + angenehme Schrift */
@@ -50,6 +64,9 @@ body {
     font-family: 'Inter', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
     line-height: 1.5;
     min-height: 100vh;
+    /* dvh = tatsaechliche Bildschirmhoehe. Auf iOS waere 100vh zu hoch,
+       weil die Browserleiste mitgezaehlt wird. */
+    min-height: 100dvh;
     -webkit-font-smoothing: antialiased;
 }
 

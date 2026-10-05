@@ -6,6 +6,26 @@
     <title>Aestra | Professional Wardrobe</title>
     <script src="{{ url_for('static', filename='js/i18n.js') }}"></script>
     <style>
+        /* Der Schalter braucht einen sichtbaren Griff — sonst sieht man
+           auf Safari und iOS nur ein leeres Rechteck. */
+        #useProfileSwitch::after {
+            content: '';
+            position: absolute;
+            top: 3px; left: 3px;
+            width: 18px; height: 18px;
+            border-radius: 50%;
+            background: var(--pick-fg);
+            transition: transform .2s ease, background .2s ease;
+        }
+        #useProfileSwitch:checked {
+            background: #000;
+            border-color: var(--btn-active-border);
+        }
+        #useProfileSwitch:checked::after {
+            transform: translateX(18px);
+            background: #fff;
+        }
+
         :root {
             /* Gleiche Farben wie der Rest der App (base.css).
                --primary ist hier die aktive Akzent-Farbe — neutrales Teal. */
@@ -27,6 +47,7 @@
             margin: 0;
             display: flex;
             min-height: 100vh;
+            min-height: 100dvh;
         }
 
         /* Eingabefelder dunkel ans Design anpassen (nicht weiß lassen) */
@@ -52,6 +73,7 @@
             position: sticky;
             top: 0;
             height: 100vh;
+            height: 100dvh;
             box-sizing: border-box;
         }
 
@@ -80,7 +102,9 @@
         }
 
         /* --- MAIN CONTENT --- */
-        .main-content { flex: 1; padding: 40px; }
+        /* Unten Platz fuer die feste Leiste auf dem Handy — plus der
+           Home-Anzeige des iPhone, sonst verdeckt sie den letzten Button. */
+        .main-content { flex: 1; padding: 40px; padding-bottom: calc(40px + env(safe-area-inset-bottom)); }
 
         .stats-container {
             display: flex; gap: 20px; margin-bottom: 40px; justify-content: flex-start;
@@ -195,7 +219,7 @@
             .logo p { margin: 0; }
             .sidebar nav { display: flex; gap: 8px; flex-wrap: wrap; }
             .sidebar .nav-btn { width: auto; margin: 0; padding: 10px 14px; }
-            .main-content { padding: 20px 14px; }
+            .main-content { padding: 20px 14px; padding-bottom: calc(96px + env(safe-area-inset-bottom)); }
             .stats-container { flex-wrap: wrap; gap: 12px; justify-content: stretch; }
             .stat-card { flex: 1 1 calc(33% - 12px); min-width: 0; padding: 16px 8px; }
             .stat-card h2 { font-size: 28px; }
@@ -432,6 +456,24 @@
                 Your frame: average-height regular build — pssst, save to let the stylist see it!
             </div>
 
+            <!-- Schalter: gespeicherte Profile benutzen oder nicht -->
+            <label id="useProfileRow" for="useProfileSwitch"
+                   style="display:flex; align-items:center; gap:12px; margin-top:18px;
+                          padding:13px 14px; border:1px solid var(--border);
+                          border-radius:12px; background:var(--bg-soft); cursor:pointer;">
+                <input type="checkbox" id="useProfileSwitch" onchange="toggleProfileUse(this.checked)"
+                       style="appearance:none; -webkit-appearance:none; flex:0 0 auto;
+                              width:44px; height:26px; margin:0; border-radius:999px;
+                              background:#000; border:1px solid var(--btn-border);
+                              position:relative; cursor:pointer; transition:border-color .2s, background .2s;">
+                <span style="flex:1; min-width:0;">
+                    <span style="display:block; font-size:14px; font-weight:700; color:var(--text);"
+                          data-i18n="w.useProfile">Use my saved profiles</span>
+                    <span style="display:block; font-size:12px; color:var(--muted); margin-top:2px;"
+                          data-i18n="w.useProfileHint">Body and face profile are sent with the stylist request. Switch off to start fresh.</span>
+                </span>
+            </label>
+
             <button class="add-btn" id="profileSaveBtn" style="width:100%; margin-top:16px;" onclick="saveProfile()" data-i18n="w.saveProfile">Save Profile</button>
             <button class="add-btn" id="profileClearBtn" style="width:100%; margin-top:8px; border-color:rgba(255,107,107,.55);" onclick="clearProfile()" data-i18n="w.clearProfile">Clear Profile</button>
         </div>
@@ -556,6 +598,31 @@
         localStorage.setItem('styleai_items', JSON.stringify(wardrobe));
         if (window.loggedIn) apiPost('/api/wardrobe', { items: wardrobe }).catch(() => {});
     }
+    /* ------------------------------------------------------------
+       Gespeichertes Profil benutzen oder nicht?
+       Vorher gab es nur "Speichern" und "Löschen". Ein gespeichertes
+       Profil wurde damit immer mitgeschickt — man konnte es weder
+       einmal aussetzen noch bewusst wieder verwenden.
+       ------------------------------------------------------------ */
+    const PROFILE_ON_KEY = 'styleai_use_profile';
+
+    function profileEnabled() {
+        const v = localStorage.getItem(PROFILE_ON_KEY);
+        // Standard: benutzen, wenn ein Profil da ist (das alte Verhalten)
+        return v === null ? !!window.myProfile : v === '1';
+    }
+
+    function setProfileEnabled(on) {
+        localStorage.setItem(PROFILE_ON_KEY, on ? '1' : '0');
+        renderProfileBadge();
+        const sw = document.getElementById('useProfileSwitch');
+        if (sw) sw.checked = on;
+    }
+
+    window.toggleProfileUse = function (on) {
+        setProfileEnabled(!!on);
+    };
+
     function persistProfile() {
         localStorage.setItem('styleai_profile', JSON.stringify(window.myProfile));
         if (window.loggedIn) apiPost('/api/profile', { profile: window.myProfile }).catch(() => {});
@@ -940,7 +1007,8 @@
                 ? `\nCURRENT WEATHER WHERE THE USER IS: ${weatherInfo.temp}${weatherInfo.unit} (feels like ${weatherInfo.feels}${weatherInfo.unit}), ${weatherInfo.label}${weatherInfo.rain ? ', rain likely' : ''}. WEATHER IS THE #1 DECIDING FACTOR: the outfit MUST be appropriate for ${weatherInfo.temp}${weatherInfo.unit} and ${weatherInfo.label}. Suggested dressing for that temperature: ${weatherInfo.temp <= 5 ? 'heavy winter layers, coat, scarf, boots' : weatherInfo.temp <= 12 ? 'warm layers, jacket, sweater' : weatherInfo.temp <= 18 ? 'light layers, jacket or cardigan' : weatherInfo.temp <= 25 ? 'light clothing, no heavy layers' : 'summer clothing, breathable fabrics'}.`
                 : '';
 
-            const bodyLine = window.myProfile
+            const useProfile = profileEnabled() && !!window.myProfile;
+            const bodyLine = useProfile
                 ? `\nUSER BODY PROFILE: gender=${window.myProfile.gender}, height=${window.myProfile.heightCm} cm, weight=${window.myProfile.weightKg} kg (frame: ${buildLabel(window.myProfile)}). TAILOR EVERY RECOMMENDATION to this: pick lengths, cuts, sleeve lengths and silhouettes that flatter this exact height and build (petite = shorter hems, avoid drowning silhouettes; tall = can carry length and oversized; curvier/fuller = define the waist and choose stretch/comfy cuts), and follow gender-appropriate styling conventions.`
                 : '';
 
@@ -949,7 +1017,10 @@
                Ohrringen, Schals und beim Gesamt-Look. */
             let savedFace = null;
             try { savedFace = JSON.parse(localStorage.getItem('styleai_face') || 'null'); } catch (e) { savedFace = null; }
-            const faceLine = (savedFace && savedFace.features)
+            /* Auch das im Beauty Lab gespeicherte Gesichtsprofil gehoert
+               hinter denselben Schalter. Vorher liess sich nur loeschen;
+               einmal gespeichert wurde es bei jedem Outfit mitgeschickt. */
+            const faceLine = (useProfile && savedFace && savedFace.features)
                 ? `\nUSER FACE PROFILE (from Beauty Lab analysis): ${JSON.stringify(savedFace.features)}. Use this ONLY where it genuinely matters for styling: neckline direction (e.g. ${String(savedFace.features.face || '').toLowerCase()} face → open necklines frame it better), glasses, earrings, hair framing, hats, scarf placement, and colors that complement ${savedFace.features.tone || 'the skin tone'}. Do not describe the face or the body in the advice — use it silently to make better choices.`
                 : '';
 
@@ -1212,7 +1283,11 @@
         const badge = document.getElementById('profileBadge');
         const text = document.getElementById('profileBadgeText');
         if (!window.myProfile) { badge.style.display = 'none'; return; }
-        text.innerText = profileSummary();
+        const on = profileEnabled();
+        const suffix = (typeof window.T === 'function')
+            ? window.T('w.profileIgnored') : 'saved, not used';
+        text.innerText = profileSummary() + (on ? '' : ' · ' + suffix);
+        badge.style.opacity = on ? '1' : '.55';
         badge.style.display = 'block';
     }
 
@@ -1224,6 +1299,11 @@
         document.querySelectorAll('#profileOverlay .mode-chip[data-gender]').forEach(b => {
             b.classList.toggle('active', b.dataset.gender === profileGender);
         });
+        /* Schalter an den gespeicherten Zustand anpassen */
+        const sw = document.getElementById('useProfileSwitch');
+        if (sw) sw.checked = profileEnabled();
+        const row = document.getElementById('useProfileRow');
+        if (row) row.style.display = window.myProfile ? 'flex' : 'none';
         setHeightUnit(profileUnit, true);
         setWeightUnit(profileWeightUnit, true);
         document.getElementById('weightInput').value = (profileWeightUnit === 'imperial' && p.lbs != null) ? p.lbs : (p.weightKg || '');
@@ -1309,12 +1389,16 @@
         };
         window.myProfile = p;
         persistProfile();
+        /* Beim erstmaligen Speichern einschalten: wer ein Profil anlegt,
+           will es auch benutzen. */
+        localStorage.setItem(PROFILE_ON_KEY, '1');
         closeProfile();
         renderProfileBadge();
     };
 
     window.clearProfile = () => {
         window.myProfile = null;
+        localStorage.removeItem(PROFILE_ON_KEY);
         clearProfileStorage();
         closeProfile();
         renderProfileBadge();

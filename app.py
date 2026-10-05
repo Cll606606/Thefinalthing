@@ -498,7 +498,9 @@ def manifest():
 @app.route("/login")
 def login_page():
     if "uid" in session:
-        return redirect(url_for("index_page"))
+        # Endpunkt heisst "landing_page" — "index_page" gibt es nicht,
+        # dadurch lief jeder eingeloggte Aufruf von /login in einen 500er.
+        return redirect(url_for("landing_page"))
     return render_template("login.html")
 
 

@@ -129,6 +129,8 @@
         'm.title': 'Live measurements',
         'pwa.install': 'Install as app',
         'pwa.hint': 'Runs from your home screen like a normal app — no app store needed.',
+        'pwa.iosHint': 'On iPhone/iPad: tap Share (□↑), then "Add to Home Screen".',
+        'pwa.iosBtn': '📲 Add to home screen',
             'l.analyzing': 'Analyzing your features…',
             'l.matching': 'Matching products…',
             'l.generating': 'Building your look…',
@@ -204,8 +206,10 @@
             'w.gender': 'Gender',
             'w.height': 'Height',
             'w.weight': 'Weight',
-            'w.saveProfile': 'Save Profile',
-            'w.clearProfile': 'Clear Profile'
+            'w.clearProfile': 'Clear Profile',
+            'w.useProfile': 'Use my saved profiles',
+            'w.useProfileHint': 'Body and face profile are sent with the stylist request. Switch off to start fresh.',
+            'w.profileIgnored': 'saved, not being used'
         },
         de: {
             'nav.home': 'Home',
@@ -331,6 +335,8 @@
         'm.title': 'Live-Messwerte',
         'pwa.install': 'Als App installieren',
         'pwa.hint': 'Läuft vom Startbildschirm wie eine normale App — kein App-Store nötig.',
+        'pwa.iosHint': 'Auf iPhone/iPad: Teilen (□↑) antippen, dann „Zum Home-Bildschirm“.',
+        'pwa.iosBtn': '📲 Zum Home-Bildschirm',
             'l.analyzing': 'Analysiere deine Merkmale…',
             'l.matching': 'Suche Produkte…',
             'l.generating': 'Erstelle deinen Look…',
@@ -406,8 +412,10 @@
             'w.gender': 'Geschlecht',
             'w.height': 'Größe',
             'w.weight': 'Gewicht',
-            'w.saveProfile': 'Profil speichern',
-            'w.clearProfile': 'Profil löschen'
+            'w.clearProfile': 'Profil löschen',
+            'w.useProfile': 'Meine gespeicherten Profile benutzen',
+            'w.useProfileHint': 'Körper- und Gesichtsprofil werden mit der Anfrage an den Stylisten geschickt. Ausschalten, um ohne zu starten.',
+            'w.profileIgnored': 'gespeichert, gerade nicht benutzt'
         },
         es: {
             'nav.home': 'Inicio',
@@ -533,6 +541,8 @@
         'm.title': 'Mediciones en vivo',
         'pwa.install': 'Instalar como app',
         'pwa.hint': 'Se ejecuta desde tu pantalla de inicio como una app normal.',
+        'pwa.iosHint': 'En iPhone/iPad: toca Compartir (□↑) y luego "Añadir a pantalla de inicio".',
+        'pwa.iosBtn': '📲 Añadir a inicio',
             'l.analyzing': 'Analizando tus rasgos…',
             'l.matching': 'Buscando productos…',
             'l.generating': 'Creando tu look…',
@@ -608,8 +618,10 @@
             'w.gender': 'Género',
             'w.height': 'Altura',
             'w.weight': 'Peso',
-            'w.saveProfile': 'Guardar perfil',
-            'w.clearProfile': 'Borrar perfil'
+            'w.clearProfile': 'Borrar perfil',
+            'w.useProfile': 'Usar mis perfiles guardados',
+            'w.useProfileHint': 'El perfil de cuerpo y de cara se envían al estilista. Desactívalo para empezar de cero.',
+            'w.profileIgnored': 'guardado, sin usar'
         },
         fr: {
             'nav.home': 'Accueil',
@@ -735,6 +747,8 @@
         'm.title': 'Mesures en direct',
         'pwa.install': 'Installer comme app',
         'pwa.hint': "Fonctionne depuis l'écran d'accueil comme une app classique.",
+        'pwa.iosHint': "Sur iPhone/iPad : touchez Partager (□↑), puis « Sur l'écran d'accueil ».",
+        'pwa.iosBtn': "📲 Sur l'écran d'accueil",
             'l.analyzing': 'Analyse de vos traits…',
             'l.matching': 'Recherche de produits…',
             'l.generating': 'Création de votre look…',
@@ -810,8 +824,10 @@
             'w.gender': 'Genre',
             'w.height': 'Taille',
             'w.weight': 'Poids',
-            'w.saveProfile': 'Enregistrer le profil',
-            'w.clearProfile': 'Effacer le profil'
+            'w.clearProfile': 'Effacer le profil',
+            'w.useProfile': 'Utiliser mes profils enregistrés',
+            'w.useProfileHint': "Les profils corps et visage sont envoyés au styliste. Désactivez pour repartir de zéro.",
+            'w.profileIgnored': 'enregistré, non utilisé'
         }
     };
 
