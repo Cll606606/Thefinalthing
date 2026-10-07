@@ -87,6 +87,22 @@
         input::placeholder, textarea::placeholder { color: #5c5c6b; }
         select option { background: #12121a; color: var(--text-main); }
 
+        /* Schnellauswahl der Stilrichtung (Dark Academia / Coastal / Cyberpunk).
+           Diese Klasse kommt aus style.css, das die Style-Lab-Seite nicht laedt -
+           darum hier mit den lokalen Variablen nachgebaut, statt eines harten
+           weissen Hintergrunds. */
+        .style-chip {
+            background: var(--sidebar);
+            color: var(--text-main);
+            border: 1px solid var(--border);
+            padding: 6px 14px;
+            border-radius: 30px;
+            font-size: 12px;
+            cursor: pointer;
+            transition: border-color .15s, background .15s;
+        }
+        .style-chip:hover { border-color: var(--btn-border-hover); background: #17171f; }
+
         /* Datei-Auswahl und Kontrollkaestchen: beide kommen vom
            Browser in hell. Die agewanderten Felder (itemName, heightMain,
            weightInput, secA usw.) haben nur einen border per Inline-Style
@@ -281,7 +297,7 @@
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-    <meta name="apple-mobile-web-app-title" content="My Style">
+    <meta name="apple-mobile-web-app-title" content="Aestra">
 </head>
 <body>
 
@@ -344,9 +360,9 @@
                     </div>
                 </div>
                 <div style="display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 20px;">
-                    <span onclick="document.getElementById('user-style').value='Dark Academia'" style="cursor:pointer; font-size:11px; background:#eee; padding:4px 10px; border-radius:15px;">Dark Academia</span>
-                    <span onclick="document.getElementById('user-style').value='1920s Gatsby'" style="cursor:pointer; font-size:11px; background:#eee; padding:4px 10px; border-radius:15px;">Coastal Grandmother</span>
-                    <span onclick="document.getElementById('user-style').value='Cyberpunk'" style="cursor:pointer; font-size:11px; background:#eee; padding:4px 10px; border-radius:15px;">Cyberpunk</span>
+<span class="style-chip" onclick="document.getElementById('user-style').value='Dark Academia'">Dark Academia</span>
+                    <span class="style-chip" onclick="document.getElementById('user-style').value='Coastal Grandma'">Coastal Grandma</span>
+                    <span class="style-chip" onclick="document.getElementById('user-style').value='Cyberpunk'">Cyberpunk</span>
                 </div>
 
                 <div style="text-align: center;">
@@ -779,7 +795,7 @@
             const data = await res.json();
             if (data.ok && data.desc) {
                 const tags = [data.type, data.color, data.fabric, data.fit].filter(Boolean).join(' · ');
-                return { ok: true, desc: data.desc, tags };
+                return { ok: true, desc: data.desc, tags, type: data.type || '' };
             }
             if (data.key_missing) {
                 console.warn('Gemini key not configured — using name only.');
@@ -805,11 +821,12 @@
         let desc = '';
         let tags = '';
         let note = '';
+        let ai = null;
 
         if (tempImg) {
             btn.disabled = true;
             btn.textContent = '👀 AI is looking at this photo...';
-            const ai = await describeClothing(tempImg, name);
+            ai = await describeClothing(tempImg, name);
             analyzed = ai.ok;
             desc = ai.desc;
             tags = ai.tags;
@@ -818,7 +835,7 @@
         }
 
         const catEl = document.getElementById('catIn');
-        if (analyzed && ai.type) {
+        if (analyzed && ai && ai.type) {
             const mapped = mapTypeToCategory(ai.type);
             if (mapped) catEl.value = mapped;
         }
@@ -1572,12 +1589,21 @@
         const rows = [];
         const add = (id, cat, n, reason) => rows.push({ id, cat, n, reason });
 
+        /* Kapsel an das Profil binden: wer sich als maennlich eintraegt,
+           bekommt keine Kleider/Roecke vorgeschlagen. Bei allen anderen
+           (inkl. "keine Angabe") bleibt die Liste wie bisher. */
+        const male = ((window.myProfile && window.myProfile.gender) || '') === 'Male';
+
         const topsN = warm >= 24 ? '5 tees/tanks + 2 light tops' : '4 tees + 3 knits/long-sleeve';
         add('tops', 'Tops', topsN, warm >= 24 ? 'Spend most of the year warm.' : 'Layers beat the cold.');
-        add('bottoms', 'Bottoms', '3 pairs (jeans, trousers, shorts/skirt)', 'One neutral in denim, one smart, one hot-weather.');
-        if (warm >= 22) add('dresses-summer', 'Dresses', '2 light/linen dresses', 'Your summer is genuinely warm.');
-        const dressCold = cold <= 5 ? '2 knit/office dresses' : '1–2 transition dresses';
-        add('dresses-cold', 'Dresses', dressCold, cold <= 5 ? 'Cold winters need a knit dress under a coat.' : 'A dress that works most of the year.');
+        add('bottoms', 'Bottoms',
+            male ? '3 pairs (jeans, chinos, shorts)' : '3 pairs (jeans, trousers, shorts/skirt)',
+            'One neutral in denim, one smart, one hot-weather.');
+        if (!male) {
+            if (warm >= 22) add('dresses-summer', 'Dresses', '2 light/linen dresses', 'Your summer is genuinely warm.');
+            const dressCold = cold <= 5 ? '2 knit/office dresses' : '1–2 transition dresses';
+            add('dresses-cold', 'Dresses', dressCold, cold <= 5 ? 'Cold winters need a knit dress under a coat.' : 'A dress that works most of the year.');
+        }
         if (cold <= -10) {
             add('outer-heavy', 'Outerwear', '1 heavy snow parka + 1 mid puffer', 'Your winters are extreme.');
         } else if (cold <= 0) {

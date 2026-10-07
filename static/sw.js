@@ -1,5 +1,5 @@
 /* ============================================================
-   SERVICE WORKER — My Style
+   SERVICE WORKER — Aestra
    ------------------------------------------------------------
    Strategie:
    - App-Shell (HTML/CSS/JS/Icons): Cache-First. Die App startet

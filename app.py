@@ -541,6 +541,7 @@ def robots_txt():
         "Disallow: /beauty\n"
         "Disallow: /wardrobe\n"
         "Disallow: /settings\n"
+        "Disallow: /webllm-test\n"
         "Disallow: /api/\n"
         "\n"
         f"Sitemap: {base_url()}/sitemap.xml\n"
@@ -582,6 +583,28 @@ def style_lab():
 def settings_page():
     """Einstellungs-Seite: Profil, Passwort, Sicherheitsfrage, Logout."""
     return render_template("settings.html")
+
+
+@app.route("/privacy")
+def privacy_page():
+    """Datenschutz-Seite: was lokal bleibt und was den Server/Dritte erreicht.
+
+    Bewusst OHNE Login: die Datenschutzerklaerung muss jeder lesen koennen,
+    auch bevor er ein Konto anlegt.
+    """
+    return render_template("privacy.html")
+
+
+@app.route("/webllm-test")
+def webllm_test_page():
+    """Messseite fuer die lokale KI-Pruefung (WebGPU/WebLLM).
+
+    Ohne Login, weil die Seite nur misst und keine Nutzerdaten anzeigt —
+    auf dem Handy im WLAN soll sie ohne Umweg erreichbar sein. WebGPU
+    laeuft ausschliesslich in einem sicheren Kontext, deshalb muss der
+    Zugriff vom Handy ueber HTTPS erfolgen (AESTRA_HOST=0.0.0.0 ./run.sh).
+    """
+    return render_template("webllm-test.html")
 
 
 # ============================================================
@@ -879,6 +902,44 @@ def api_account_password():
     return jsonify({"ok": True})
 
 
+@app.route("/api/account/delete", methods=["POST"])
+@api_login_required
+def api_account_delete():
+    """Konto und ALLE zugehoerigen Daten wirklich loeschen.
+
+    Eine App, die mit Datenschutz wirbt, muss das anbieten: der Nutzer
+    kann sein Konto samt Garderobe, Koerperprofil und Klimakapsel selbst
+    entfernen. Zum Schutz wird das Passwort verlangt, damit niemand, der
+    nur kurz am Geraet sitzt, ein fremdes Konto loescht.
+    """
+    d = request.get_json(silent=True) or {}
+    password = d.get("password") or ""
+
+    if not _rate_check("account:" + _client_ip(), limit=5, window_s=300):
+        return jsonify({"ok": False, "error": "Too many attempts. Wait a few minutes."}), 429
+
+    db = _get_db()
+    row = db.execute(
+        "SELECT password_hash FROM users WHERE id = ?", (session["uid"],)
+    ).fetchone()
+    if not row or not check_password_hash(row["password_hash"], password):
+        db.close()
+        return jsonify({"ok": False, "error": "Wrong password."}), 401
+
+    uid = session["uid"]
+    # Erst die zugehoerigen Daten, dann den Nutzer selbst - so bleibt
+    # nichts Verwaistes zurueck, falls dazwischen etwas abbricht.
+    db.execute("DELETE FROM wardrobe WHERE user_id = ?", (uid,))
+    db.execute("DELETE FROM profile WHERE user_id = ?", (uid,))
+    db.execute("DELETE FROM capsule WHERE user_id = ?", (uid,))
+    db.execute("DELETE FROM users WHERE id = ?", (uid,))
+    db.commit()
+    db.close()
+
+    session.clear()
+    return jsonify({"ok": True})
+
+
 # ============================================================
 #   PER-USER DATA  (each row belongs to session["uid"])
 # ============================================================
@@ -1028,7 +1089,22 @@ class _GeminiError(RuntimeError):
     pass
 
 
-def _gemini_call(payload, *, label="text"):
+def _model_order(prefer=None):
+    """Reihenfolge der Modellversuche; ein Wunschmodell kommt nach vorn.
+
+    SICHERHEIT: `prefer` kommt vom Browser und landet sonst im URL-Pfad.
+    Deshalb wird ausschliesslich gegen die serverseitig konfigurierte
+    Liste geprueft — kein unbekannter String wird weitergereicht, auch
+    nicht teilweise. "auto"/leer bedeutet: normale Reihenfolge.
+    """
+    order = list(GEMINI_MODELS)
+    if prefer and prefer != "auto" and prefer in order:
+        order.remove(prefer)
+        order.insert(0, prefer)
+    return order
+
+
+def _gemini_call(payload, *, label="text", prefer=None):
     """Ruft Gemini; probiert die Modellliste durch, bis eines antwortet.
 
     Rueckgabe: (text, model) oder wirft _GeminiError.
@@ -1037,7 +1113,7 @@ def _gemini_call(payload, *, label="text"):
         raise _GeminiError("no_key")
 
     last = None
-    for model in GEMINI_MODELS:
+    for model in _model_order(prefer):
         url = ("https://generativelanguage.googleapis.com/v1beta/models/"
                f"{model}:generateContent")
         try:
@@ -1074,7 +1150,7 @@ def _gemini_call(payload, *, label="text"):
 
     raise _GeminiError(_scrub(last) or "Gemini nicht erreichbar")
 
-def _gemini_describe(data_url, name):
+def _gemini_describe(data_url, name, prefer=None):
     inline = _downscale_jpeg(data_url)
 
     prompt = (
@@ -1111,11 +1187,13 @@ def _gemini_describe(data_url, name):
             "maxOutputTokens": 8000
         }
     }
-    text, _model = _gemini_call(payload, label="describe")
+    text, _model = _gemini_call(payload, label="describe", prefer=prefer)
 
-    try:
-        text = resp.json()["candidates"][0]["content"]["parts"][0]["text"]
-    except (KeyError, IndexError):
+    # BUGFIX: hier stand noch `text = resp.json()[...]` - ein Rest aus der Zeit
+    # VOR _gemini_call. `resp` existiert in dieser Funktion nicht mehr, jede
+    # Kleiderbeschreibung endete mit NameError (gefangen wurde nur
+    # KeyError/IndexError). _gemini_call liefert den Text bereits fertig.
+    if not text or not text.strip():
         raise RuntimeError("Gemini returned no content for this image.")
 
     text = text.strip()
@@ -1129,8 +1207,13 @@ def _gemini_describe(data_url, name):
     return json.loads(match.group(0))
 
 
-def _gemini_text_json(prompt):
-    """Text-only Gemini call that returns a parsed JSON object."""
+def _gemini_text_json(prompt, prefer=None, info=None):
+    """Text-only Gemini call that returns a parsed JSON object.
+
+    `info` (optionales dict) wird mit {"model": ...} gefuellt, damit der
+    Aufrufer dem Nutzer sagen kann, WELCHES Modell geantwortet hat — bei
+    einem Wunschmodell kann es ja ein anderes aus der Fallback-Kette sein.
+    """
     payload = {
         "contents": [{"parts": [{"text": prompt}]}],
         "generationConfig": {
@@ -1140,7 +1223,9 @@ def _gemini_text_json(prompt):
             "maxOutputTokens": 8000
         }
     }
-    text, _model = _gemini_call(payload, label="text-json")
+    text, model = _gemini_call(payload, label="text-json", prefer=prefer)
+    if isinstance(info, dict):
+        info["model"] = model
     text = re.sub(r"^```(?:json)?\s*|\s*```$", "", text.strip())
     match = re.search(r"\{[\s\S]*\}", text)
     if not match:
@@ -1167,7 +1252,7 @@ def _key_missing_message():
             "the .env file and restart the server.")
 
 
-def _gemini_text_raw(prompt, max_tokens=8000):
+def _gemini_text_raw(prompt, max_tokens=8000, prefer=None):
     """Plain-text Gemini call (no JSON constraint) for free-form answers."""
     payload = {
         "contents": [{"parts": [{"text": prompt}]}],
@@ -1179,8 +1264,25 @@ def _gemini_text_raw(prompt, max_tokens=8000):
             "maxOutputTokens": max_tokens
         }
     }
-    text, _model = _gemini_call(payload, label="text-raw")
+    text, _model = _gemini_call(payload, label="text-raw", prefer=prefer)
     return text
+
+
+@app.route('/api/ai-models', methods=['GET'])
+@api_login_required
+def api_ai_models():
+    """Die tatsaechlich konfigurierten Modelle fuer die Auswahl im UI.
+
+    Der Browser erfindet keine Modellnamen: das Menue wird aus der
+    Server-Konfiguration gefuellt, damit die Auswahl auch nach einer
+    Aenderung an GEMINI_MODEL stimmt.
+    """
+    return jsonify({
+        "ok": True,
+        "models": list(GEMINI_MODELS),
+        "default": GEMINI_MODELS[0] if GEMINI_MODELS else "",
+        "has_key": bool(GEMINI_API_KEY)
+    })
 
 
 @app.route('/api/text-ai', methods=['POST'])
@@ -1195,6 +1297,12 @@ def api_text_ai():
     prompt = data.get("prompt", "")
     if not prompt:
         return jsonify({"ok": False, "error": "No prompt provided."}), 400
+    # Nur ein Modell aus der eigenen Konfiguration; alles andere faellt
+    # still auf die normale Kette zurueck (kein Reflected Input im URL-Pfad).
+    prefer = data.get("model") or "auto"
+    if prefer != "auto" and prefer not in GEMINI_MODELS:
+        app.logger.info("unbekanntes Modell angefragt, ignoriere Auswahl")
+        prefer = "auto"
     if not GEMINI_API_KEY:
         return jsonify({
             "ok": False,
@@ -1208,9 +1316,10 @@ def api_text_ai():
     for attempt in range(3):
         try:
             if data.get("plain"):
-                return jsonify({"ok": True, "text": _gemini_text_raw(prompt)})
-            result = _gemini_text_json(prompt)
-            return jsonify({"ok": True, "data": result})
+                return jsonify({"ok": True, "text": _gemini_text_raw(prompt, prefer=prefer)})
+            info = {}
+            result = _gemini_text_json(prompt, prefer=prefer, info=info)
+            return jsonify({"ok": True, "data": result, "model": info.get("model")})
         except _GeminiError as exc:
             last_exc = exc
             msg = str(exc).lower()
@@ -1240,6 +1349,9 @@ def describe_clothing():
     data = request.get_json(force=True, silent=True) or {}
     image = data.get("image", "")
     name = data.get("name", "")
+    prefer = data.get("model") or "auto"
+    if prefer != "auto" and prefer not in GEMINI_MODELS:
+        prefer = "auto"
 
     if not image:
         return jsonify({"ok": False, "error": "No image provided."}), 200
@@ -1252,7 +1364,7 @@ def describe_clothing():
         }), 200
 
     try:
-        result = _gemini_describe(image, name)
+        result = _gemini_describe(image, name, prefer=prefer)
         result["ok"] = True
         return jsonify(result)
     except Exception as exc:  # noqa: BLE001 - surface anything to the client

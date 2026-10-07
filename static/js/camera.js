@@ -23,6 +23,17 @@ window.features = {
 
 window.showMap = false;
 
+/* Landmark-Punkte: standardmaessig AN. Man soll sehen, was die
+   Gesichtserkennung wirklich sieht — 468 Punkte, die Masche dazwischen
+   und die Strecken, aus denen die Kennzahlen entstehen. */
+window.showLandmarks = true;
+
+/* Die Kamera- und Foto-Vorschau ist gespiegelt (wie im Spiegel, CSS
+   transform: scaleX(-1)). Die Landmarks kommen aber im ROH-
+   Koordinatenraum des Streams: ohne Spiegeln beim Zeichnen sessen die
+   Punkte links statt rechts — und das wuerde man sofort sehen. */
+window.mirrorPreview = true;
+
 /* Guide lines shown on the camera while scanning (passport-photo style).
    The user can toggle them and can also freely retype every detected
    feature in the manual override inputs. */
@@ -66,40 +77,784 @@ window.toggleGuide = (btn) => {
     }
 };
 
+
+/* ============================================================
+   MESSKARTE
+   ------------------------------------------------------------
+   Die Hilfslinien oben sind statisch: sie liegen an festen
+   Bildpositionen und sagen nichts darueber, WAS gemessen wird.
+   Die Messkarte zeichnet dagegen die Landmarks selbst und die
+   Strecken, aus denen die Kennzahlen entstehen. Sie haengt
+   deshalb zwangslaeufig am Gesicht — bewegt sich das Gesicht,
+   bewegt sich die Karte mit.
+
+   Sie beantwortet drei Fragen, die im sonstigen UI unsichtbar
+   bleiben:
+     1. Welche Punkte werden ueberhaupt verwendet?
+     2. Welche Strecke ergibt welchen Zahlenwert?
+     3. Wie entwickelt sich der Wert, und wo liegt der Median?
+
+   Wichtig: Gezeichnet wird in den ROH-Koordinaten aus
+   window._lastLandmarks (x*Breite, y*Hoehe). Die
+   Seitenverhaeltnis-Korrektur aus handleResults gehoert NICHT
+   zum Zeichnen — sie macht die Einheiten der beiden Achsen
+   gleich, wuerde das Bild aber verzerren, wenn man sie auch
+   hier anwenden wuerde.
+   ============================================================ */
+
+/* Die fuenf Grundmessungen. Genau diese Strecken ergeben L, Wf,
+   Wc, Wj und die Kinnbreite — alles Weitere ist daraus abgeleitet. */
+const MAP_SEGMENTS = [
+    { a: 10, b: 152, key: 'L', color: '#5ef2c3' },
+    { a: 234, b: 454, key: 'Wc', color: '#7dd3fc' },
+    { a: 103, b: 332, key: 'Wf', color: '#c4b5fd' },
+    { a: 172, b: 397, key: 'Wj', color: '#fcd34d' },
+    { a: 136, b: 148, key: 'chinWidth', color: '#f9a8d4' }
+];
+
+/* Lidspalte: drei Strecken je Auge, daraus der Median. */
+const MAP_APERTURE = [
+    [145, 159], [144, 160], [153, 158],
+    [374, 386], [373, 387], [380, 385]
+];
+
+/* Lippenhoehe: drei vertikale Strecken. */
+const MAP_LIP_HEIGHT = [[13, 14], [82, 87], [312, 317]];
+
+/* Brauenbogen: innerer Endpunkt -> Scheitel -> aeusserer Endpunkt. */
+const MAP_BROWS = [[107, 105, 53], [336, 334, 283]];
+
+/* Hautton-Stichproben. */
+const MAP_TONE = [50, 101, 118, 187, 205, 280, 330, 347, 411, 425];
+
+/* Alle Punkte, die in eine Auswertung eingehen — heller als der Rest. */
+const MAP_USED = (() => {
+    const s = new Set();
+    MAP_SEGMENTS.forEach(g => { s.add(g.a); s.add(g.b); });
+    MAP_APERTURE.forEach(p => { s.add(p[0]); s.add(p[1]); });
+    MAP_LIP_HEIGHT.forEach(p => { s.add(p[0]); s.add(p[1]); });
+    MAP_BROWS.forEach(p => p.forEach(i => s.add(i)));
+    [33, 133, 362, 263, 78, 308, 70, 300].forEach(i => s.add(i));
+    MAP_TONE.forEach(i => s.add(i));
+    return s;
+})();
+
+
+/* ============================================================
+   LANDMARK-EBENE — die Punkte selbst, so wie MediaPipe sie liefert
+   ------------------------------------------------------------
+   Die Hilfslinien sind statisch: ein gedrucktes Oval, das nichts mit
+   dem Gesicht zu tun hat. Diese Ebene zeigt dagegen genau das, was
+   die Messung wirklich benutzt: 468 Punkte, die Masche dazwischen
+   und die Konturen von Augen, Brauen und Lippen.
+   ============================================================ */
+
+/* x-Spiegelung der Vorschau (siehe window.mirrorPreview). */
+function mapX(nx, w) {
+    return (window.mirrorPreview === false ? nx : 1 - nx) * w;
+}
+
+/* Rahmen des Videos auf die Anzeigeflaeche abbilden — also das
+   nachbilden, was object-fit:cover mit dem Bild macht. Ohne diese
+   Rechnung liegen die Punkte neben dem Gesicht, sobald Bild und
+   Rahmen ein anderes Seitenverhaeltnis haben (typisch 4:3-Stream
+   in einem 3:4-Rahmen: bis zu 100 px daneben). */
+function overlayTransform(boxW, boxH, srcW, srcH) {
+    const s = Math.max(boxW / srcW, boxH / srcH);
+    return {
+        scale: s,
+        dx: (boxW - srcW * s) / 2,
+        dy: (boxH - srcH * s) / 2
+    };
+}
+window.overlayTransform = overlayTransform;
+
+/* Verbindungsliste direkt aus dem MediaPipe-Modul (FACEMESH_*), damit
+   die Masche exakt zum Modell passt und keine Kanten erfunden werden.
+   Faehlt das Modul (CDN blockiert / offline), bleiben die Punkte allein
+   stehen — gezeichnet wird trotzdem. */
+function meshPairs(name) {
+    try {
+        const v = window[name];
+        return Array.isArray(v) ? v : [];
+    } catch (e) {
+        return [];
+    }
+}
+
+const MESH = {
+    tesselation: meshPairs('FACEMESH_TESSELATION'),
+    contours: meshPairs('FACEMESH_CONTOURS')
+        .concat(meshPairs('FACEMESH_FACE_OVAL'))
+        .concat(meshPairs('FACEMESH_LIPS'))
+        .concat(meshPairs('FACEMESH_LEFT_EYE'), meshPairs('FACEMESH_RIGHT_EYE'))
+        .concat(meshPairs('FACEMESH_LEFT_EYEBROW'), meshPairs('FACEMESH_RIGHT_EYEBROW')),
+    iris: meshPairs('FACEMESH_LEFT_IRIS').concat(meshPairs('FACEMESH_RIGHT_IRIS'))
+};
+
+
+function drawLandmarkDots(c, lm, w, h) {
+
+    if (!lm || lm.length < 468) return;
+
+    const X = (i) => mapX(lm[i].x, w);
+    const Y = (i) => lm[i].y * h;
+    const ok = (i) => lm[i] && Number.isFinite(lm[i].x) && Number.isFinite(lm[i].y);
+    const scale = Math.max(0.6, Math.min(w, h) / 480);
+
+    c.save();
+    c.lineCap = 'round';
+
+    /* --- 1. Masche: 2528 Kanten, aber EIN Pfad, ein Stroke --------- */
+    if (MESH.tesselation.length) {
+        c.strokeStyle = 'rgba(94,242,195,0.11)';
+        c.lineWidth = Math.max(0.6, 0.8 * scale);
+        c.beginPath();
+        MESH.tesselation.forEach(p => {
+            if (!ok(p[0]) || !ok(p[1])) return;
+            c.moveTo(X(p[0]), Y(p[0]));
+            c.lineTo(X(p[1]), Y(p[1]));
+        });
+        c.stroke();
+    }
+
+    /* --- 2. Konturen, die eine Gesichter wirklich erkennbar machen -- */
+    if (MESH.contours.length) {
+        c.strokeStyle = 'rgba(94,242,195,0.60)';
+        c.lineWidth = Math.max(1, 1.4 * scale);
+        c.beginPath();
+        MESH.contours.forEach(p => {
+            if (!ok(p[0]) || !ok(p[1])) return;
+            c.moveTo(X(p[0]), Y(p[0]));
+            c.lineTo(X(p[1]), Y(p[1]));
+        });
+        c.stroke();
+    }
+
+    /* --- 3. Irisringe (nur bei refineLandmarks, Punkte 468+) ------- */
+    if (lm.length >= 478 && MESH.iris.length) {
+        c.strokeStyle = 'rgba(125,211,252,0.95)';
+        c.lineWidth = Math.max(1.2, 1.8 * scale);
+        c.beginPath();
+        MESH.iris.forEach(p => {
+            if (!ok(p[0]) || !ok(p[1])) return;
+            c.moveTo(X(p[0]), Y(p[0]));
+            c.lineTo(X(p[1]), Y(p[1]));
+        });
+        c.stroke();
+    }
+
+    /* --- 4. alle Punkte -------------------------------------------- */
+    const r = Math.max(1, 1.7 * scale);
+    c.fillStyle = 'rgba(255,255,255,0.55)';
+    for (let i = 0; i < lm.length && i < 468; i++) {
+        if (!ok(i)) continue;
+        c.fillRect(X(i) - r, Y(i) - r, r * 2, r * 2);
+    }
+
+    /* --- 5. die Punkte, die in eine Messung eingehen, heller -------- */
+    const ra = Math.max(2.4, 3.2 * scale);
+    MAP_USED.forEach(i => {
+        if (!ok(i)) return;
+        c.fillStyle = '#5ef2c3';
+        c.beginPath();
+        c.arc(X(i), Y(i), ra, 0, Math.PI * 2);
+        c.fill();
+        c.strokeStyle = 'rgba(6,8,12,0.75)';
+        c.lineWidth = Math.max(1, scale);
+        c.stroke();
+    });
+
+    c.restore();
+
+}
+
+
+/* Sichtbar machen, ob gerade ueberhaupt ein Gesicht da ist — sonst
+   sieht der Nutzer nur die Hilfslinien und weiss nicht, ob die
+   Erkennung laeuft oder ob die Kamera nur die Decke filmt. */
+let badgeState = null;
+let badgeFound = false;
+let badgeCount = 0;
+
+function setDetectBadge(found, count, force) {
+
+    badgeFound = !!found;
+    badgeCount = count || 0;
+
+    const el = document.getElementById('detect-badge');
+    if (!el) return;
+
+    const t = (k, fb) => (window.T ? window.T(k) : fb);
+    const text = found
+        ? t('beauty.detectOn', 'FACE · {n} POINTS').replace('{n}', String(count))
+        : t('beauty.detectOff', 'SEARCHING FOR A FACE…');
+
+    if (!force && text === badgeState) return;
+    badgeState = text;
+
+    el.textContent = text;
+    el.classList.toggle('on', !!found);
+
+}
+
+/* Vom Sprachwechsel aus neu setzen (Text sonst bis zum naechsten Frame
+   in der alten Sprache). */
+window.refreshDetectBadge = function () {
+    setDetectBadge(badgeFound, badgeCount, true);
+};
+
+
+window.toggleLandmarks = (btn) => {
+    window.showLandmarks = !window.showLandmarks;
+    const lbl = btn && btn.querySelector('#landmark-label');
+    const target = lbl || btn;
+    if (target) {
+        const t = window.T ? window.T : (k) => k;
+        target.textContent = '✨ ' + (window.showLandmarks
+            ? t('beauty.landmarksOn', 'Landmark dots: ON')
+            : t('beauty.landmarksOff', 'Landmark dots: OFF'));
+    }
+    /* Sofakt neu zeichnen: sonst bleiben die Punkte bis zum naechsten
+       Frame stehen, wenn gerade kein Live-Bild laeuft (Foto-Modus). */
+    if (typeof renderOverlay === 'function') renderOverlay();
+};
+
+
+function mapLabel(c, text, x, y, scale, color) {
+
+    c.font = '600 ' + Math.round(12 * scale) + 'px ui-monospace, Menlo, monospace';
+    c.textAlign = 'left';
+    c.textBaseline = 'middle';
+
+    const wpx = c.measureText(text).width;
+
+    c.fillStyle = 'rgba(6,8,12,0.72)';
+    c.fillRect(x - 3 * scale, y - 8 * scale, wpx + 6 * scale, 16 * scale);
+    c.fillStyle = color;
+    c.fillText(text, x, y);
+
+}
+
+
+function drawFaceMap(c, lm, w, h) {
+
+    if (!lm || lm.length < 468) return;
+
+    /* Punkte ausserhalb des Bildes nicht zeichnen. */
+    const ok = (i) => lm[i] && Number.isFinite(lm[i].x) && Number.isFinite(lm[i].y);
+
+    /* x ueber mapX: die Vorschau ist gespiegelt, die Roh-Landmarks nicht. */
+    const X = (i) => mapX(lm[i].x, w);
+    const Y = (i) => lm[i].y * h;
+
+    const scale = Math.max(0.6, Math.min(w, h) / 480);
+    const fm = window.faceMetrics || {};
+
+    c.save();
+
+    /* --- 1. alle 468 Landmarks, sehr dezent ------------------- */
+    c.fillStyle = 'rgba(94,242,195,0.22)';
+    for (let i = 0; i < lm.length; i++) {
+        const p = lm[i];
+        if (!p) continue;
+        c.fillRect(mapX(p.x, w) - scale, p.y * h - scale, 2 * scale, 2 * scale);
+    }
+
+    /* --- 2. Augenbrauen-Gesackel als feine Linien ------------ */
+    c.strokeStyle = 'rgba(196,181,253,0.35)';
+    c.lineWidth = Math.max(1, scale);
+    MAP_BROWS.forEach(trio => {
+        c.beginPath();
+        c.moveTo(X(trio[0]), Y(trio[0]));
+        c.lineTo(X(trio[1]), Y(trio[1]));
+        c.lineTo(X(trio[2]), Y(trio[2]));
+        c.stroke();
+    });
+
+    /* --- 3. Lippenkontur ------------------------------------- */
+    if (ok(78) && ok(308)) {
+        c.strokeStyle = 'rgba(249,168,212,0.45)';
+        c.lineWidth = Math.max(1, 1.5 * scale);
+        c.beginPath();
+        c.moveTo(X(78), Y(78));
+        c.lineTo(X(308), Y(308));
+        c.stroke();
+    }
+
+    /* --- 4. die fuenf Grundmessungen ------------------------- */
+    c.lineWidth = Math.max(2, 2.5 * scale);
+    c.lineCap = 'round';
+
+    MAP_SEGMENTS.forEach(seg => {
+        if (!ok(seg.a) || !ok(seg.b)) return;
+        c.strokeStyle = seg.color;
+        c.beginPath();
+        c.moveTo(X(seg.a), Y(seg.a));
+        c.lineTo(X(seg.b), Y(seg.b));
+        c.stroke();
+
+        /* Endpunkte markieren */
+        [seg.a, seg.b].forEach(i => {
+            c.fillStyle = seg.color;
+            c.beginPath();
+            c.arc(X(i), Y(i), 3 * scale, 0, Math.PI * 2);
+            c.fill();
+        });
+
+        const value = fm[seg.key];
+        if (Number.isFinite(value)) {
+            const mx = (X(seg.a) + X(seg.b)) / 2;
+            const my = (Y(seg.a) + Y(seg.b)) / 2;
+            const txt = seg.key + ' ' + (value < 1 ? value.toFixed(3) : value.toFixed(2));
+            mapLabel(c, txt, mx + 6 * scale, my - 10 * scale, scale, seg.color);
+        }
+    });
+
+    /* --- 5. Lidspalten --------------------------------------- */
+    c.strokeStyle = 'rgba(94,242,195,0.75)';
+    c.lineWidth = Math.max(1.5, 2 * scale);
+    MAP_APERTURE.forEach(pair => {
+        if (!ok(pair[0]) || !ok(pair[1])) return;
+        c.beginPath();
+        c.moveTo(X(pair[0]), Y(pair[0]));
+        c.lineTo(X(pair[1]), Y(pair[1]));
+        c.stroke();
+    });
+
+    /* --- 6. Lippenhoehe -------------------------------------- */
+    c.strokeStyle = 'rgba(249,168,212,0.75)';
+    MAP_LIP_HEIGHT.forEach(pair => {
+        if (!ok(pair[0]) || !ok(pair[1])) return;
+        c.beginPath();
+        c.moveTo(X(pair[0]), Y(pair[0]));
+        c.lineTo(X(pair[1]), Y(pair[1]));
+        c.stroke();
+    });
+
+    /* --- 7. Roll-Referenz fuer den Tilt ---------------------- */
+    /* Waagerechte durch die Augenmitten. Der gemessene Tilt ist
+       der Winkel zwischen dieser Linie und der Augenlinie — so wird
+       sichtbar, dass die Kopfdrehung herausgerechnet wird. */
+    if (ok(33) && ok(133) && ok(362) && ok(263)) {
+        const eyeMidY = ((Y(33) + Y(133) + Y(362) + Y(263)) / 4);
+        const tilt = window.measurements ? window.measurements.tiltDeg : null;
+
+        c.save();
+        c.setLineDash([6 * scale, 6 * scale]);
+        c.strokeStyle = 'rgba(125,211,252,0.55)';
+        c.lineWidth = Math.max(1, scale);
+        c.beginPath();
+        c.moveTo(w * 0.06, eyeMidY);
+        c.lineTo(w * 0.94, eyeMidY);
+        c.stroke();
+        c.restore();
+
+        /* Augenlinien selbst, dick hervorgehoben */
+        c.strokeStyle = '#7dd3fc';
+        c.lineWidth = Math.max(2, 2.5 * scale);
+        [[33, 133], [362, 263]].forEach(pair => {
+            c.beginPath();
+            c.moveTo(X(pair[0]), Y(pair[0]));
+            c.lineTo(X(pair[1]), Y(pair[1]));
+            c.stroke();
+        });
+
+        if (Number.isFinite(tilt)) {
+            const mx = w * 0.5;
+            mapLabel(
+                c, 'tilt ' + tilt.toFixed(1) + '\u00B0',
+                mx + 8 * scale, eyeMidY - 14 * scale, scale, '#7dd3fc'
+            );
+        }
+    }
+
+    /* --- 8. Hautton-Stichproben ------------------------------ */
+    c.strokeStyle = 'rgba(253,186,116,0.9)';
+    c.lineWidth = Math.max(1, scale);
+    MAP_TONE.forEach(i => {
+        if (!ok(i)) return;
+        const r = 4 * scale;
+        c.strokeRect(X(i) - r, Y(i) - r, r * 2, r * 2);
+    });
+
+    /* --- 9. genutzte Punkte hervorheben ----------------------- */
+    c.fillStyle = '#ffffff';
+    MAP_USED.forEach(i => {
+        if (!ok(i)) return;
+        c.beginPath();
+        c.arc(X(i), Y(i), 2.6 * scale, 0, Math.PI * 2);
+        c.fill();
+    });
+
+    /* --- 10. Eckfeld mit den eingestuften Werten -------------- */
+    const m = window.measurements;
+    const rows = [
+        ['face', window.features.face, fm.ratio],
+        ['eyes', window.features.eyes, m ? m.eyeStable : null],
+        ['tilt', window.features.eyeTilt, m ? m.tiltDeg : null],
+        ['lips', window.features.lips, m ? m.lipRatio : null],
+        ['brows', window.features.brows, m ? m.browArch : null],
+        ['cheek', window.features.cheekbones, m ? m.cheekRatio : null],
+        ['tone', window.features.tone, null]
+    ].filter(r => r[1] && r[1] !== '--');
+
+    if (rows.length) {
+        const fs = Math.round(11 * scale);
+        const lh = fs * 1.55;
+        const pad = 6 * scale;
+        const boxW = 168 * scale;
+        const boxH = rows.length * lh + pad * 2 + fs * 1.4;
+
+        c.fillStyle = 'rgba(6,8,12,0.66)';
+        c.fillRect(8 * scale, 8 * scale, boxW, boxH);
+        c.strokeStyle = 'rgba(94,242,195,0.30)';
+        c.lineWidth = Math.max(1, scale);
+        c.strokeRect(8 * scale, 8 * scale, boxW, boxH);
+
+        c.font = '700 ' + Math.round(10 * scale) + 'px ui-monospace, Menlo, monospace';
+        c.fillStyle = '#5ef2c3';
+        c.textAlign = 'left';
+        c.textBaseline = 'middle';
+        c.fillText('MEASURED', 8 * scale + pad, 8 * scale + pad + fs * 0.6);
+
+        c.font = '400 ' + fs + 'px ui-monospace, Menlo, monospace';
+        rows.forEach((row, idx) => {
+            const y = 8 * scale + pad + fs * 1.4 + idx * lh + lh / 2;
+            c.fillStyle = '#9ca3af';
+            c.fillText(row[0], 8 * scale + pad, y);
+            c.fillStyle = '#e5e7eb';
+            c.textAlign = 'right';
+            const val = Number.isFinite(row[2])
+                ? row[2].toFixed(2)
+                : '';
+            c.fillText(String(row[1]) + (val ? '  ' + val : ''), 8 * scale + boxW - pad, y);
+            c.textAlign = 'left';
+        });
+    }
+
+    c.restore();
+
+}
+
+
+window.toggleMap = (btn) => {
+
+    window.showMap = !window.showMap;
+    const target = (btn && btn.querySelector('#map-label')) || btn;
+
+    if (target) {
+        /* Ohne geladenes i18n-Modul (oder vor ihm) waere der rohe Schluessel
+           sichtbar — deshalb als Fallback der englische Text. */
+        const t = (k, fb) => (window.T ? window.T(k) : fb);
+        target.textContent = '\uD83D\uDCF1 ' + (window.showMap
+            ? t('beauty.mapOn', 'Measurement map: ON')
+            : t('beauty.mapOff', 'Measurement map: OFF'));
+    }
+
+    /* Verlaufs-Diagramm gehört zum Messmodus. */
+    const panel = document.getElementById('trend-panel');
+    if (panel) panel.style.display = window.showMap ? 'block' : 'none';
+
+    if (window.showMap) {
+        renderOverlay();
+        drawTrend();
+    }
+
+};
+
+
+/* ============================================================
+   VERLAUF
+   ------------------------------------------------------------
+   Sechs Kennzahlen, sechs völlig verschiedene Wertebereiche
+   (Tilt −45…45, Lidspalte 0.05…1.2, Wangen 0.5…2.5). In EINEM
+   Diagramm ueberlagert waeren sie unlesbar, deshalb bekommt jede
+   Kennzahl eine eigene Zeile mit eigener Skala, eingezeichneten
+   Einstufungsgrenzen und einer Markierung fuer den Median.
+
+   Genau dieser Median ist das, worueber die Einstufung entscheidet
+   — die Linie macht daher sichtbar, WARUM ein Label steht.
+   ============================================================ */
+
+const TREND_SERIES = [
+    { key: 'eye', label: 'eye', color: '#5ef2c3',
+      marks: [[0.27, 'narrow'], [0.44, 'round']] },
+    { key: 'lip', label: 'lips', color: '#f9a8d4',
+      marks: [[0.22, 'thin'], [0.36, 'full']] },
+    { key: 'tilt', label: 'tilt', color: '#7dd3fc',
+      marks: [[-3, 'down'], [3, 'up']] },
+    { key: 'brow', label: 'brow', color: '#c4b5fd',
+      marks: [[0.06, 'straight'], [0.15, 'high']] },
+    { key: 'cheek', label: 'cheek', color: '#fcd34d',
+      marks: [[1.15, 'moderate'], [1.30, 'high']] },
+    { key: 'cheekDom', label: 'cheekDom', color: '#fdba74',
+      marks: [[0.10, 'high']] }
+];
+
+const TREND_LABEL_W = 74;
+const TREND_ROW_H = 30;
+const TREND_PAD = 8;
+
+
+function drawTrend() {
+
+    const el = document.getElementById('trend-canvas');
+    if (!el) return;
+
+    const cssW = el.clientWidth || 320;
+    const cssH = TREND_PAD * 2 + TREND_SERIES.length * TREND_ROW_H;
+
+    /* Auflösung an die Darstellungsgröße anpassen, sonst wird das
+       Diagramm auf Retina unscharf. */
+    const dpr = Math.min(2, window.devicePixelRatio || 1);
+    const wantW = Math.round(cssW * dpr);
+    const wantH = Math.round(cssH * dpr);
+
+    if (el.width !== wantW || el.height !== wantH) {
+        el.width = wantW;
+        el.height = wantH;
+        el.style.height = cssH + 'px';
+    }
+
+    const c = el.getContext('2d');
+    c.setTransform(dpr, 0, 0, dpr, 0, 0);
+    c.clearRect(0, 0, cssW, cssH);
+
+    const plotX = TREND_LABEL_W;
+    const plotW = Math.max(30, cssW - TREND_LABEL_W - TREND_PAD - 34);
+
+    TREND_SERIES.forEach((series, idx) => {
+
+        const range = VALID_HISTORY[series.key];
+        const lo = range[0];
+        const hi = range[1];
+        const top = TREND_PAD + idx * TREND_ROW_H;
+        const midY = top + TREND_ROW_H / 2;
+
+        const toY = (v) => midY - ((v - lo) / (hi - lo)) * (TREND_ROW_H * 0.40);
+
+        /* Zeilenhintergrund */
+        c.fillStyle = idx % 2 ? 'rgba(255,255,255,0.020)' : 'rgba(255,255,255,0.045)';
+        c.fillRect(plotX, top + 2, plotW, TREND_ROW_H - 4);
+
+        /* Einstufungsgrenzen */
+        c.save();
+        c.setLineDash([3, 3]);
+        c.lineWidth = 1;
+        series.marks.forEach(m => {
+            const y = toY(m[0]);
+            c.strokeStyle = 'rgba(156,163,175,0.45)';
+            c.beginPath();
+            c.moveTo(plotX, y);
+            c.lineTo(plotX + plotW, y);
+            c.stroke();
+            c.fillStyle = 'rgba(156,163,175,0.75)';
+            c.font = '8px ui-monospace, Menlo, monospace';
+            c.textAlign = 'left';
+            c.textBaseline = 'middle';
+            c.fillText(m[1], plotX + plotW + 4, y);
+        });
+        c.restore();
+
+        /* Serienverlauf */
+        const list = history[series.key];
+
+        if (list.length) {
+            const step = list.length > 1 ? plotW / (HISTORY_MAX - 1) : 0;
+            const x0 = plotX + plotW - (list.length - 1) * step;
+
+            c.strokeStyle = series.color;
+            c.lineWidth = 1.6;
+            c.beginPath();
+            list.forEach((v, i) => {
+                const x = x0 + i * step;
+                const y = toY(v);
+                if (i === 0) c.moveTo(x, y);
+                else c.lineTo(x, y);
+            });
+            c.stroke();
+
+            /* letzter Rohwert als Punkt */
+            c.fillStyle = series.color;
+            c.beginPath();
+            c.arc(x0 + (list.length - 1) * step, toY(list[list.length - 1]), 2.4, 0, Math.PI * 2);
+            c.fill();
+
+            /* Median der letzten 25 — die Groesse, nach der
+               tatsaechlich eingestuft wird. */
+            const win = list.slice(-Math.min(list.length, 25));
+            const med = median(win);
+            const yMed = toY(med);
+            c.strokeStyle = series.color;
+            c.lineWidth = 1.2;
+            c.beginPath();
+            c.moveTo(plotX, yMed);
+            c.lineTo(plotX + plotW, yMed);
+            c.stroke();
+        }
+
+        /* Beschriftung */
+        c.fillStyle = list.length ? '#e5e7eb' : '#6b7280';
+        c.font = '600 10px ui-monospace, Menlo, monospace';
+        c.textAlign = 'left';
+        c.textBaseline = 'middle';
+        c.fillText(series.label, 4, midY);
+
+        /* aktueller Median als Zahl */
+        if (list.length) {
+            c.fillStyle = series.color;
+            c.font = '600 10px ui-monospace, Menlo, monospace';
+            c.textAlign = 'right';
+            c.fillText(median(list.slice(-Math.min(list.length, 25))).toFixed(2), cssW - 4, midY);
+            c.textAlign = 'left';
+        }
+    });
+
+}
+
+
+let trendRaf = null;
+let trendLast = 0;
+
+function trendLoop(ts) {
+
+    trendRaf = requestAnimationFrame(trendLoop);
+
+    /* 12 fps genuegen fuer eine 45-Frames-Historie und sparen
+       deutlich Akku auf dem Geraet. */
+    if (ts - trendLast < 80) return;
+    trendLast = ts;
+
+    const el = document.getElementById('trend-canvas');
+    if (!el) return;
+    if (!el.clientWidth) return;
+
+    drawTrend();
+
+}
+
+
+/* ============================================================
+   OVERLAY RENDERNA — eine Quelle fuer Live-Bild und Foto
+   ============================================================ */
+
+function renderOverlay() {
+
+    const src = analysisSource;
+
+    const sw = (src && src.videoWidth) || (src && src.naturalWidth) || (src && src.width) || 0;
+    const sh = (src && src.videoHeight) || (src && src.naturalHeight) || (src && src.height) || 0;
+
+    if (!sw || !sh) return;
+
+    /* Anzeigeflaeche statt Bildgroesse: das Video faellt per
+       object-fit:cover in den Rahmen, der Canvas frueher einfach gestreckt.
+       Jetzt wird die Cover-Transformation hier uebernommen — dann sitzen
+       die Punkte exakt auf dem, was der Nutzer sieht. */
+    const boxW = canvas.clientWidth || sw;
+    const boxH = canvas.clientHeight || sh;
+    const dpr = Math.min(2, window.devicePixelRatio || 1);
+    const W = Math.max(1, Math.round(boxW * dpr));
+    const H = Math.max(1, Math.round(boxH * dpr));
+
+    if (canvas.width !== W) canvas.width = W;
+    if (canvas.height !== H) canvas.height = H;
+
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
+    ctx.clearRect(0, 0, W, H);
+
+    const t = overlayTransform(boxW, boxH, sw, sh);
+    ctx.setTransform(dpr * t.scale, 0, 0, dpr * t.scale, dpr * t.dx, dpr * t.dy);
+
+    /* Die Hilfslinien helfen nur beim Einrichten vor der Kamera. Bei einem
+       hochgeladenen Foto gibt es nichts auszurichten — sie wuerden dort nur
+       stoeren. */
+    if (!window.photoMode) drawGuide(ctx, sw, sh);
+
+    /* Landmarks: im Live-Bild nur, solange sie frisch sind. Sonst haengten
+       die Punkte noch Sekunden in der Luft, nachdem das Gesicht weg ist
+       (leere Frames werden absichtlich NICHT zurueckgesetzt, siehe
+       handleResults). Ein Standbild liefert genau einen Frame — dort zaehlt
+       er dauerhaft. */
+    const lm = window._lastLandmarks;
+    const fresh = !!lm && (
+        window.photoMode ||
+        (!!window._landmarksAt && Date.now() - window._landmarksAt < 700)
+    );
+
+    if (fresh) {
+        if (window.showLandmarks) drawLandmarkDots(ctx, lm, sw, sh);
+        if (window.showMap) drawFaceMap(ctx, lm, sw, sh);
+    }
+
+    setDetectBadge(fresh, lm ? lm.length : 0);
+
+}
+
+/* Ein hochgeladenes Foto wird AUCH im Scanner-Rahmen gezeigt. Vorher
+   stand dort nur das eingefrorene Kamerabild, waehrend die Punkte schon
+   vom Foto kamen — die haengen dann sichtbar neben dem Bild. */
+function showPhotoPreview(img) {
+
+    const el = document.getElementById('photo-preview');
+
+    if (el && img && img.src) {
+        el.src = img.src;
+        el.style.display = 'block';
+    }
+
+    const v = document.getElementById('video');
+    if (v) v.style.visibility = 'hidden';
+
+    renderOverlay();
+
+}
+
+function hidePhotoPreview() {
+
+    const el = document.getElementById('photo-preview');
+    if (el) {
+        el.style.display = 'none';
+        el.removeAttribute('src');
+    }
+
+    const v = document.getElementById('video');
+    if (v) v.style.visibility = '';
+
+}
+
 /* Eigener Zeichen-Loop für die Führungslinien — läuft dauernd über dem
    Live-Kamerabild und wartet NICHT auf die Gesichtserkennung. So erscheinen
    die Hilfslinien sofort, auch wenn MediaPipe noch nicht fertig geladen ist
    oder gerade kein Gesicht erkannt wurde. */
 let guideRaf = null;
+let overlayStaleStamp = 0;
+
 function guideLoop() {
+
     guideRaf = requestAnimationFrame(guideLoop);
-    if (window.photoMode) return;
+
+    if (window.photoMode) {
+        /* Ein Foto ist statisch. Neu zeichnen nur, wenn MediaPipe neue
+           Landmarks geliefert hat — sonst 60× pro Sekunde dasselbe Bild. */
+        const stamp = window._landmarksAt || 0;
+        if (stamp && stamp !== overlayStaleStamp) {
+            overlayStaleStamp = stamp;
+            renderOverlay();
+        }
+        return;
+    }
+
     if (!video.videoWidth || !video.videoHeight) return;
 
-    if (canvas.width !== video.videoWidth) canvas.width = video.videoWidth;
-    if (canvas.height !== video.videoHeight) canvas.height = video.videoHeight;
+    renderOverlay();
 
-    ctx.clearRect(0, 0, canvas.width, canvas.height);
-    drawGuide(ctx, canvas.width, canvas.height);
-
-    /* Debug-Punkte (eingeschaltet über die Entwickler-Konsole, window.showMap) */
-    if (window.showMap && window._lastLandmarks) {
-        const lm = window._lastLandmarks;
-        ctx.lineWidth = 2;
-        ctx.strokeStyle = "#5ef2c3";
-        const points = [10, 152, 234, 454, 33, 133, 362, 263, 159, 145, 160, 144,
-                        386, 374, 387, 373, 13, 14, 78, 308, 70, 300,
-                        50, 101, 118, 187, 205, 280, 330, 347, 411, 425];
-        points.forEach(i => {
-            const p = lm[i];
-            if (!p) return;
-            ctx.beginPath();
-            ctx.arc(p.x * canvas.width, p.y * canvas.height, 3, 0, 2 * Math.PI);
-            ctx.stroke();
-        });
-    }
 }
 guideLoop();
+
+/* Verlaufs-Diagramm: eigener Loop, gedrosselt auf ~12 fps. */
+requestAnimationFrame(trendLoop);
 
 /* Fill the manual-override inputs with the freshly detected values —
    but never overwrite a value the user typed by hand. */
@@ -1140,10 +1895,157 @@ function waitForMediaPipe(timeout = 12000) {
 }
 
 
+/* ============================================================
+   FRAME-DIAGNOSE
+   ------------------------------------------------------------
+   Zwei Fallstricke, die beide im echten Betrieb beobachtet wurden:
+
+   1. Beim ersten Start laedt das Modell mehrere Megabyte. Waehrend
+      dieses Download schlaegt jedes send() fehl. Solange duerfen
+      Fehler NICHT gezaehlt werden — sonst steht nach jedem
+      Seitenaufruf die Warnung, obwohl danach alles laeuft.
+   2. Eine einmal gezeigte Warnung muss wieder verschwinden, wenn
+      die Frames laufen. Sonst haelt EIN schlechter Moment die
+      Meldung fuer immer offen — genau das passiert, wenn man nur
+      die Fehler zaehlt und nie zuruecksetzt.
+   ============================================================ */
+
+/* Schwellen. Ueber window.* vor dem Laden von camera.js setzbar, damit
+   die Browser-Pruefung denselben Pfad mit kleinen Zahlen abdeckt. */
+const MP_GRACE_MS = (window.MP_GRACE_MS !== undefined)
+    ? window.MP_GRACE_MS : 8000;   /* Modell-Download + WASM-Start */
+const MP_FAIL_LIMIT = (window.MP_FAIL_LIMIT !== undefined)
+    ? window.MP_FAIL_LIMIT : 60;   /* ~2 s echte Fehlerrate */
+const MP_OK_CLEAR = (window.MP_OK_CLEAR !== undefined)
+    ? window.MP_OK_CLEAR : 30;     /* 1 s in Folge ok => Warnung weg */
+
+let mpStreamStart = 0;
+let mpFailStreak = 0;
+let mpOkStreak = 0;
+let mpFirstError = '';
+
+window._frameErrors = 0;
+
+function mpResetFrameStats() {
+
+    mpStreamStart = Date.now();
+    mpFailStreak = 0;
+    mpOkStreak = 0;
+    mpFirstError = '';
+    window._frameErrors = 0;
+
+}
+
+/* Nur fuer die Pruefung: Gnadenfrist ablaufen lassen, ohne 8 s zu warten. */
+window.__mpExpireGrace = function () {
+    mpStreamStart = 0;
+};
+
+/* Die kritischen Dateien des Modells. Wenn eine davon nicht ladet,
+   hilft "60 Frames fehlgeschlagen" niemandem — der Dateiname ist das,
+   was Ad-Blocker, Offline-Caches und kaputte Netzwerke unterscheidbar
+   macht. */
+async function probeMediaPipeAssets() {
+
+    const files = [
+        'face_mesh.binarypb',
+        'face_mesh_solution_packed_assets.data',
+        'face_mesh_solution_simd_wasm_bin.wasm'
+    ];
+
+    const bad = [];
+
+    for (const file of files) {
+
+        try {
+
+            const res = await fetch(`${MEDIAPIPE_CDN}${file}`, { method: 'HEAD' });
+
+            if (!res.ok) bad.push(`${file} (HTTP ${res.status})`);
+
+        }
+        catch (e) {
+
+            bad.push(`${file} (${(e && e.message) ? e.message : 'blocked'})`);
+
+        }
+
+    }
+
+    window._mpAssetProbe = bad;
+
+    const detail = document.getElementById('mediapipe-note-detail');
+
+    if (!detail) return;
+
+    if (bad.length) {
+
+        detail.textContent += ' Blocked asset: ' + bad.join(', ') + '.';
+
+    }
+    else if (window._mpWarningSource === 'frames') {
+
+        detail.textContent +=
+            ' All MediaPipe files are reachable — the error above comes ' +
+            'from the browser itself (camera / WebGL / console for details).';
+
+    }
+
+}
+
+function frameStreamOk() {
+
+    mpFailStreak = 0;
+    mpOkStreak += 1;
+    window._frameErrors = 0;
+
+    if (mpOkStreak >= MP_OK_CLEAR && window._mpWarningSource === 'frames') {
+
+        mediaPipeClear();
+
+    }
+
+}
+
+function frameStreamFailed(e) {
+
+    const msg = (e && e.message) ? e.message : String(e);
+
+    if (mpOkStreak > 0) console.error('Aestra: FaceMesh frame failed —', e);
+
+    mpOkStreak = 0;
+
+    /* Modell laedt gerade: zaehlen nicht. */
+    if (mpStreamStart && Date.now() - mpStreamStart < MP_GRACE_MS) return;
+
+    mpFailStreak += 1;
+    window._frameErrors = mpFailStreak;
+
+    if (!mpFirstError) mpFirstError = msg;
+
+    if (mpFailStreak === 1) console.error('Aestra: FaceMesh frame failed —', e);
+
+    if (mpFailStreak === MP_FAIL_LIMIT) {
+
+        mediaPipeWarning(
+            MP_FAIL_LIMIT + ' camera frames could not be processed — ' +
+            'first error: "' + mpFirstError + '". Reload the page, or ' +
+            'disable your ad blocker for cdn.jsdelivr.net.',
+            'frames'
+        );
+
+        probeMediaPipeAssets();
+
+    }
+
+}
+
+
 /* Sichtbarer Hinweis statt stillem Weiterlaufen. */
-function mediaPipeWarning(reason) {
+function mediaPipeWarning(reason, source) {
 
     window.mediapipeError = reason;
+    window._mpWarningSource = source || '';
 
     const note = document.getElementById('mediapipe-note');
 
@@ -1163,6 +2065,26 @@ function mediaPipeWarning(reason) {
     if (window.showMap) return;
 
     console.error('Aestra: MediaPipe nicht verfügbar —', reason);
+
+}
+
+
+/* Nur Warnungen, die von fehlgeschlagenen Frames stammen, verschwinden
+   wieder, wenn die Erkennung laeuft. Fehlerteilungen beim Start
+   (Kamera verweigert, Bibliothek blockiert) bleiben stehen, bis jemand
+   auf "Retry" tippt. */
+function mediaPipeClear() {
+
+    if (window._mpWarningSource !== 'frames') return;
+
+    window._mpWarningSource = '';
+    window.mediapipeError = '';
+
+    const note = document.getElementById('mediapipe-note');
+    if (note) note.style.display = 'none';
+
+    const detail = document.getElementById('mediapipe-note-detail');
+    if (detail) detail.textContent = '';
 
 }
 
@@ -1191,7 +2113,13 @@ async function initMediaPipe() {
         faceMesh = new window.FaceMesh({
 
             locateFile: (file) =>
-                `${MEDIAPIPE_CDN}${file}`
+                `${MEDIAPIPE_CDN}${file}`,
+
+            /* Ein Gesicht reicht (die Messung nimmt sowieso nur das erste),
+               refineLandmarks liefert die Irisringe — man sieht damit, dass
+               auch der Blick erkannt wird, nicht nur die Gesichtskontur. */
+            maxNumFaces: 1,
+            refineLandmarks: true
 
         });
 
@@ -2473,6 +3401,8 @@ async function startCameraStream() {
                                 image: video
                             });
 
+                            frameStreamOk();
+
                         }
                         catch (e) {
 
@@ -2481,30 +3411,11 @@ async function startCameraStream() {
                                auch nicht spurlos verschwinden. Sonst
                                bleibt bei einem echten Fehler die
                                Oberflaeche einfach leer, ohne jeden
-                               Hinweis. Der erste Fehler wird gemeldet,
-                               danach nur noch gezaehlt. */
+                               Hinweis. Zählen, erste Meldung zeigen,
+                               Modell-Download nicht als Fehler werten
+                               (siehe FRAME-DIAGNOSE oben). */
 
-                            window._frameErrors =
-                                (window._frameErrors || 0) + 1;
-
-                            if (window._frameErrors === 1) {
-
-                                console.error(
-                                    'Aestra: FaceMesh frame failed —',
-                                    e
-                                );
-
-                            }
-
-                            if (window._frameErrors === 60) {
-
-                                mediaPipeWarning(
-                                    '60 camera frames could not be ' +
-                                    'processed — reload the page or use ' +
-                                    '"Upload a photo".'
-                                );
-
-                            }
+                            frameStreamFailed(e);
 
                         }
 
@@ -2518,6 +3429,11 @@ async function startCameraStream() {
             );
 
             await candidate.start();
+
+            /* Frame-Zähler neu starten: Modell-Download läuft erst ab
+               hier mit — Fehler davor dürfen die Warnung nicht triggern
+               (siehe FRAME-DIAGNOSE). */
+            mpResetFrameStats();
 
             /* Ohne diese drei Zeilen startet das Video auf iOS/Safari
                nicht: die Autoplay-Richtlinie verlangt bei einem
@@ -2561,6 +3477,7 @@ async function startCameraStream() {
             window.cameraError = '';
             window.mediapipeError = '';
             window.photoMode = false;
+            hidePhotoPreview();
             /* Neue Sitzung: alte Messungen duerfen das Ergebnis nicht
                beeinflussen (z. B. beim Wechsel zu einer anderen Person). */
             resetHistory();
@@ -2639,6 +3556,12 @@ window.useUploadedPhoto = (img) => {
     window.photoMode = true;
     analysisSource = img;
     resetHistory();
+    /* Punkte der vorherigen Kamerastunde gehoeren nicht zum neuen Foto —
+       sonst stunden sie einen Moment lang ueber dem falschen Gesicht,
+       bis MediaPipe das Foto ausgewertet hat. */
+    window._lastLandmarks = null;
+    window._landmarksAt = 0;
+    showPhotoPreview(img);
     if (faceMesh && typeof faceMesh.send === 'function') {
         faceMesh.send({ image: img });
     }

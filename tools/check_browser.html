@@ -1,0 +1,770 @@
+<!doctype html>
+<!-- ============================================================
+  Browser-Check fuer Aestra (Headless-Chrome)
+
+  Aufruf:  tools/run_checks.sh   (oder: siehe Kommentar dort)
+
+  Was hier passiert: die ECHTEN Dateien camera.js / ai-logic.js /
+  i18n.js werden geladen, dann liefert ein synthetisches FaceMesh
+  (468 Landmarks mit bekannter Geometrie) an handleResults() —
+  also genau die Pipeline, die im Betrieb auch laeuft.
+
+  Ausgabe: eine Zeile je Pruefung im <pre id="out">,
+  Format  "PASS name" / "FAIL name | detail".
+  ============================================================ -->
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<title>Aestra Browser-Check</title>
+</head>
+<body>
+
+<!-- Elemente, die camera.js beim Aufbau braucht -->
+<style>
+    /* Rahmen wie im echten Layout (3:4), damit die Cover-Rechnung greift. */
+    #face-canvas { position: absolute; top: 0; left: 0; width: 300px; height: 400px; }
+    #photo-preview { display: none; }
+    #detect-badge { padding: 4px 8px; }
+</style>
+<video id="video"></video>
+<img id="photo-preview" alt="">
+<canvas id="face-canvas" width="480" height="640"></canvas>
+<div id="detect-badge">init</div>
+<div id="live-metrics" style="display:none"></div>
+<div id="live-metrics-rows"></div>
+<div id="mediapipe-note" style="display:none"></div>
+<div id="mediapipe-note-detail"></div>
+<div id="trend-panel" style="display:none">
+    <b data-i18n="m.trend">Measurement trend</b>
+    <canvas id="trend-canvas"></canvas>
+</div>
+<button id="guide-btn"><span id="guide-label">Guide</span></button>
+<button id="map-btn"><span id="map-label">Map</span></button>
+<button id="landmark-btn"><span id="landmark-label">Landmarks</span></button>
+<div class="chip-container" id="ai-model-chips"></div>
+<div class="chip-container" id="mode-chips">
+    <button class="chip-alt" data-pick="mode" id="chip-quick">quick</button>
+    <button class="chip-alt picked" data-pick="mode" id="chip-standard">standard</button>
+</div>
+
+<!-- Formularfelder, die syncManualFeatures fuellen muss -->
+<input id="manual-face"><input id="manual-eyes"><input id="manual-eyeTilt">
+<input id="manual-lips"><input id="manual-brows"><input id="manual-cheekbones">
+<input id="manual-tone">
+
+<div id="ai-summary"></div>
+<pre id="out" style="white-space:pre-wrap;font:12px/1.5 ui-monospace,Menlo,monospace"></pre>
+
+<script src="../static/js/i18n.js"></script>
+
+<!-- ECHTE MediaPipe-Bibliothek — NUR im E2E-Modus (?e2e=1).
+     Im Offline-Lauf (Schritt 2) duerfen diese Skripte fehlen: sie
+     laden das WASM-Modell und mehrere MB tflite, und Chrome kommt mit
+     --virtual-time-budget sonst nie zur Ruhe. Genau EIN document.write
+     mit BEIDEN Tags — zweimal (oder doppelt geschrieben) laedt das
+     WASM-Modell zweimal und endet in
+     "Module.arguments has been replaced with plain arguments_". -->
+<script>
+window.__E2E = location.search.indexOf('e2e=1') !== -1;
+if (window.__E2E) {
+    document.write(
+        '<script src="https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh"><\/script>' +
+        '<script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils"><\/script>'
+    );
+}
+</script>
+
+<script>
+/* Schwellen der Frame-Diagnose klein halten: derselbe Codepfad wie im
+   Betrieb (Gnadenfrist, Warnung, Zuruecksetzen), nur mit Zahlen, die
+   in Millisekunden statt Minuten durchlaufen. */
+window.MP_GRACE_MS = 1000;
+window.MP_FAIL_LIMIT = 5;
+window.MP_OK_CLEAR = 3;
+
+/* Verbindungslisten in der Form des MediaPipe-Bundles (Paare [a,b]).
+   Damit wird das Maschen-Zeichnen auch offline geprueft; ob das echte
+   CDN sie wirklich als Globale liefert, prueft run_checks.sh getrennt. */
+if (!Array.isArray(window.FACEMESH_TESSELATION)) {
+    window.FACEMESH_TESSELATION = [[10, 152], [234, 454]];
+    window.FACEMESH_CONTOURS = [[10, 152]];
+    window.FACEMESH_FACE_OVAL = [];
+    window.FACEMESH_LIPS = [];
+    window.FACEMESH_LEFT_EYE = [];
+    window.FACEMESH_RIGHT_EYE = [];
+    window.FACEMESH_LEFT_EYEBROW = [];
+    window.FACEMESH_RIGHT_EYEBROW = [];
+    window.FACEMESH_LEFT_IRIS = [];
+    window.FACEMESH_RIGHT_IRIS = [];
+}
+</script>
+<script src="../static/js/camera.js"></script>
+<script src="../static/js/ai-logic.js"></script>
+
+<script>
+/* ---------------------------------------------------------- Hilfen */
+const LINES = [];
+const ERRORS = [];
+
+function pass(name, detail) { LINES.push('PASS ' + name + (detail ? ' | ' + detail : '')); }
+function fail(name, detail) { LINES.push('FAIL ' + name + ' | ' + (detail || '')); }
+function check(name, fn) {
+    try {
+        const r = fn();
+        if (r === false) fail(name, 'Assertion ergab false');
+        else pass(name, r === undefined || r === true ? '' : String(r));
+    } catch (e) {
+        fail(name, (e && e.name ? e.name + ': ' : '') + (e && e.message ? e.message : e));
+    }
+}
+window.addEventListener('error', ev => {
+    ERRORS.push((ev.message || 'error') + ' @' + (ev.filename || '').split('/').pop() + ':' + (ev.lineno || '?'));
+});
+
+/* Nach einer Bildzeit (rAF/Fehler aus guideLoop, trendLoop) auswerten.
+   Danach die Endlosschleifen anhalten, damit Chrome mit
+   --virtual-time-budget wieder zurueckkommt und --dump-dom liefert. */
+function finalize() {
+    if (window.__done) return;
+    window.__done = true;
+    ERRORS.forEach(e => LINES.push('FAIL Laufzeitfehler | ' + e));
+    try { cancelAnimationFrame(guideRaf); } catch (e) { /* egal */ }
+    try { cancelAnimationFrame(trendRaf); } catch (e) { /* egal */ }
+    document.getElementById('out').textContent =
+        'TOTAL ' + LINES.filter(l => l.startsWith('PASS')).length + ' / ' + LINES.length + '\n' +
+        LINES.join('\n');
+}
+
+if (window.__E2E) {
+    /* E2E: echtes Modell muss geladen und die Kamera gestartet werden
+       dauert echte Zeit — hier auf das Ergebnis warten (hochzaehlend,
+       mit harter Obergrenze, damit Chrome zurueckkommt). */
+    const t0 = Date.now();
+    (function waitE2E() {
+        if (window.__e2eDone || Date.now() - t0 > 20000) finalize();
+        else setTimeout(waitE2E, 150);
+    })();
+}
+else {
+    setTimeout(finalize, 400);
+}
+
+
+/* ------------------------------------------------- synthetisches Gesicht
+   Alle Indizes, die camera.js tatsaechlich auswertet, stehen hier mit
+   bekannter Geometrie. Sollwerte daraus:
+     L/Wc     = 1.35   (oval)
+     eyeRatio ~ 0.40   (round)
+     lipRatio ~ 0.30   (balanced)
+   Die uebrigen 468-Punkte liegen auf einer Kopfellipse — sie werden nur
+   gezeichnet, nicht gemessen.                                          */
+function makeLandmarks() {
+    const lm = new Array(468);
+    for (let i = 0; i < 468; i++) {
+        const t = (i / 468) * Math.PI * 2;
+        lm[i] = { x: 0.5 + 0.34 * Math.cos(t), y: 0.45 + 0.37 * Math.sin(t), z: 0 };
+    }
+    const put = (idx, x, y) => { lm[idx] = { x, y, z: 0 }; };
+
+    // Grundmessungen: L (10->152), Wc (234->454), Wf (103->332), Wj (172->397), Kinn (136->148)
+    put(10, 0.50, 0.150);  put(152, 0.50, 0.798);
+    put(234, 0.18, 0.450); put(454, 0.82, 0.450);
+    put(103, 0.20, 0.300); put(332, 0.80, 0.300);
+    put(172, 0.205, 0.620); put(397, 0.795, 0.620);
+    put(136, 0.26, 0.760); put(148, 0.74, 0.760);
+
+    // Mittelachse fuer die Drei-Zonen-Messung
+    put(168, 0.50, 0.360); put(1, 0.50, 0.470);
+    put(0, 0.50, 0.100);   put(2, 0.50, 0.160);
+
+    // Augen (rechts: 33/133, links: 362/263)
+    put(33, 0.34, 0.400);  put(133, 0.44, 0.400);
+    put(362, 0.56, 0.400); put(263, 0.66, 0.400);
+    // Lidspalte: drei Paare je Auge
+    put(145, 0.39, 0.385); put(159, 0.39, 0.415);
+    put(144, 0.42, 0.385); put(160, 0.42, 0.415);
+    put(153, 0.36, 0.390); put(158, 0.36, 0.412);
+    put(374, 0.61, 0.385); put(386, 0.61, 0.415);
+    put(373, 0.58, 0.385); put(387, 0.58, 0.415);
+    put(380, 0.64, 0.390); put(385, 0.64, 0.412);
+
+    // Brauen (innen -> Scheitel -> aussen)
+    put(107, 0.33, 0.345); put(105, 0.39, 0.325); put(53, 0.46, 0.345);
+    put(336, 0.67, 0.345); put(334, 0.61, 0.325); put(283, 0.54, 0.345);
+    put(70, 0.35, 0.365);  put(300, 0.65, 0.365);
+
+    // Lippen
+    put(78, 0.40, 0.600); put(308, 0.60, 0.600);
+    put(13, 0.50, 0.557); put(14, 0.50, 0.600);
+    put(82, 0.45, 0.560); put(87, 0.45, 0.597);
+    put(312, 0.55, 0.560); put(317, 0.55, 0.597);
+
+    // Hautton-Stichproben
+    [[50, 0.30, 0.33], [101, 0.24, 0.38], [118, 0.22, 0.44], [187, 0.30, 0.28],
+     [205, 0.70, 0.28], [280, 0.78, 0.38], [330, 0.76, 0.44], [347, 0.70, 0.33],
+     [411, 0.36, 0.52], [425, 0.64, 0.52]].forEach(p => put(p[0], p[1], p[2]));
+
+    return lm;
+}
+
+const SYNTH = makeLandmarks();
+
+/* Quelle: eine echte Canvas-Datei mit fester Groesse, damit die
+   QUELLGROESSE-Pruefung in handleResults() erfuellt ist (0x0 wuerde
+   den Frame still verwerfen — genau der Fehler aus der letzten Phase). */
+const srcCanvas = document.createElement('canvas');
+srcCanvas.width = 480;
+srcCanvas.height = 640;
+analysisSource = srcCanvas;
+
+/* ------------------------------------------------------------ Tests */
+check('handleResults nimmt synthetische Landmarks an', () => {
+    handleResults({ multiFaceLandmarks: [SYNTH] });
+    if (!window.faceMetrics) throw new Error('window.faceMetrics fehlt');
+    return true;
+});
+
+check('Messkarte: alle Segment-Keys existieren in faceMetrics', () => {
+    const segSrc = (typeof MAP_SEGMENTS !== 'undefined') ? MAP_SEGMENTS : null;
+    if (!segSrc) throw new Error('MAP_SEGMENTS nicht definiert');
+    const missing = segSrc.filter(s => !(s.key in window.faceMetrics))
+                          .map(s => s.key);
+    if (missing.length) {
+        throw new Error('kein Wert fuer: ' + missing.join(', ') +
+                        ' (vorhanden: ' + Object.keys(window.faceMetrics).join(', ') + ')');
+    }
+    return segSrc.length + ' Segmente';
+});
+
+check('Kennzahlen sind endlich', () => {
+    const m = window.measurements;
+    if (!m) throw new Error('window.measurements fehlt');
+    ['eyeStable', 'lipRatio', 'tiltDeg', 'browArch', 'cheekRatio'].forEach(k => {
+        if (!Number.isFinite(m[k])) throw new Error(k + ' ist nicht endlich: ' + m[k]);
+    });
+    return 'eye=' + m.eyeStable.toFixed(3) + ' lip=' + m.lipRatio.toFixed(3) +
+           ' tilt=' + m.tiltDeg.toFixed(1) + '° brow=' + m.browArch.toFixed(3) +
+           ' cheek=' + m.cheekRatio.toFixed(3);
+});
+
+check('Formular wird ohne Eingabe gefuellt (kein leeres Formular)', () => {
+    const ids = ['manual-face', 'manual-eyes', 'manual-eyeTilt', 'manual-lips',
+                 'manual-brows', 'manual-cheekbones'];
+    const empty = ids.filter(id => {
+        const el = document.getElementById(id);
+        return !el || !String(el.value || '').trim();
+    });
+    if (empty.length) throw new Error('leer: ' + empty.join(', '));
+    return ids.length + '/' + ids.length + ' gefuellt';
+});
+
+check('drawFaceMap zeichnet ohne Fehler', () => {
+    if (typeof drawFaceMap !== 'function') throw new Error('drawFaceMap fehlt');
+    const c = document.getElementById('face-canvas').getContext('2d');
+    drawFaceMap(c, SYNTH, 480, 640);
+    return true;
+});
+
+check('Verlauf: pushSample + drawTrend ohne Fehler', () => {
+    ['eye', 'lip', 'tilt', 'brow', 'cheek', 'cheekDom'].forEach((k, i) => {
+        const range = VALID_HISTORY[k];
+        pushSample(k, range[0] + (range[1] - range[0]) * (0.3 + i * 0.05));
+    });
+    const panel = document.getElementById('trend-panel');
+    panel.style.display = 'block';
+    drawTrend();
+    const cv = document.getElementById('trend-canvas');
+    const d = cv.getContext('2d').getImageData(0, 0, cv.width, cv.height).data;
+    let painted = 0;
+    for (let i = 3; i < d.length; i += 4) if (d[i] > 0) painted++;
+    if (!painted) throw new Error('Diagramm bleibt leer');
+    return painted + ' Pixel gemalt';
+});
+
+check('Antwortsprache folgt der Oberflaeche (auto)', () => {
+    if (typeof I18N === 'undefined') throw new Error('I18N fehlt');
+    I18N.set('de');
+    if (typeof aiLangRule !== 'function') throw new Error('aiLangRule nicht erreichbar');
+    const text = aiLangRule();
+    if (!/GERMAN|Deutsch/.test(text)) {
+        throw new Error('erwartet deutsche Anweisung, bekam: ' + text.slice(0, 60));
+    }
+    I18N.set('en');
+    return true;
+});
+
+check('i18n: Umschalter-Texte sind uebersetzt', () => {
+    I18N.set('de');
+    const on = T('beauty.mapOn');
+    I18N.set('en');
+    if (!on || on === 'beauty.mapOn') throw new Error('Schluessel fehlt');
+    return 'de: ' + on;
+});
+
+check('cleanSteps respektiert die Schrittzahl (quick = 3)', () => {
+    const steps = [];
+    for (let i = 0; i < 9; i++) {
+        steps.push({ category: 'cat' + i, product: 'prod' + i, placement: 'p',
+                     shade: 's', technique: 't', why: 'w', searchQuery: 'q' + i });
+    }
+    const out = cleanSteps(steps, 3);
+    if (out.length !== 3) throw new Error('erwartet 3, bekam ' + out.length);
+    if (cleanSteps(steps, 6).length !== 6) throw new Error('cap 6 greift nicht');
+    return '3 und 6 korrekt';
+});
+
+check('setAiMode merkt sich die Auswahl', () => {
+    const chip = document.getElementById('chip-quick');
+    setAiMode('quick', chip);
+    if (window.aiMode !== 'quick') throw new Error('window.aiMode = ' + window.aiMode);
+    if (!chip.classList.contains('picked')) throw new Error('Chip nicht markiert');
+    if (document.getElementById('chip-standard').classList.contains('picked')) {
+        throw new Error('alter Chip bleibt markiert');
+    }
+    if (aiModeCfg().steps !== 3) throw new Error('aiModeCfg().steps != 3');
+    setAiMode('standard', document.getElementById('chip-standard'));
+    return 'quick/standard ok';
+});
+
+check('toggleMap schaltet Messkarte und Verlauf', () => {
+    const btn = document.getElementById('map-btn');
+    const panel = document.getElementById('trend-panel');
+    panel.style.display = 'none';
+    window.showMap = false;
+    toggleMap(btn);
+    if (!window.showMap) throw new Error('showMap nicht aktiv');
+    if (panel.style.display !== 'block') throw new Error('Verlauf nicht eingeblendet');
+    toggleMap(btn);
+    if (window.showMap) throw new Error('showMap nicht wieder aus');
+    if (panel.style.display !== 'none') throw new Error('Verlauf nicht ausgeblendet');
+    window.showMap = true;
+    toggleMap(btn);
+    return 'an/aus/an ok';
+});
+
+check('Modellwahl wird an den Server geschickt', () => {
+    setAiModel('gemini-test', document.getElementById('ai-model-chips') || document.body);
+    if (window.aiModel !== 'gemini-test') throw new Error('window.aiModel = ' + window.aiModel);
+    setAiModel('auto', document.body);
+    return true;
+});
+
+
+/* ============================================================
+   LANDMARK-EBENE — Punkte muessen AUF dem Gesicht liegen
+   ============================================================ */
+
+const BOX = { w: 300, h: 400 };   /* CSS-Rahmen aus dem <style> oben */
+
+function inkNear(x, y) {
+    const cv = document.getElementById('face-canvas');
+    const c = cv.getContext('2d');
+    const kx = cv.width / BOX.w;
+    const ky = cv.height / BOX.h;
+    const cx = Math.round(x * kx);
+    const cy = Math.round(y * ky);
+    const r = Math.max(3, Math.ceil(4 * kx));
+    const x0 = Math.max(0, cx - r);
+    const y0 = Math.max(0, cy - r);
+    const w = Math.min(cv.width, cx + r) - x0;
+    const h = Math.min(cv.height, cy + r) - y0;
+    if (w <= 0 || h <= 0) return false;
+    const d = c.getImageData(x0, y0, w, h).data;
+    for (let i = 3; i < d.length; i += 4) if (d[i] > 20) return true;
+    return false;
+}
+
+/* Ein Marker-Punkt (Index 10) oben, alle anderen als Klumpen unten —
+   dadurch ist ein Fehlplatz klar erkennbar. */
+function sparseLandmarks() {
+    const lm = new Array(468);
+    for (let i = 0; i < 468; i++) lm[i] = { x: 0.5, y: 0.9, z: 0 };
+    lm[10] = { x: 0.6, y: 0.1, z: 0 };
+    return lm;
+}
+
+/* Erwartete Bildschirmposition fuer Roh-Koordinaten (nx, ny) im
+   300x400-Rahmen bei 640x480-Bild — object-fit: cover + Spiegelung. */
+function expectedBox(nx, ny) {
+    const src = { w: 640, h: 480 };
+    const sc = Math.max(BOX.w / src.w, BOX.h / src.h);
+    const dx = (BOX.w - src.w * sc) / 2;
+    const dy = (BOX.h - src.h * sc) / 2;
+    return { x: ((window.mirrorPreview === false ? nx : 1 - nx) * src.w) * sc + dx,
+             y: (ny * src.h) * sc + dy };
+}
+
+check('overlayTransform bildet object-fit:cover nach', () => {
+    const t = overlayTransform(BOX.w, BOX.h, 640, 480);
+    const s = BOX.h / 480;
+    const near = (a, b) => Math.abs(a - b) < 1e-6;
+    if (!near(t.scale, s)) throw new Error('scale ' + t.scale + ' erwartet ' + s);
+    if (!near(t.dx, (BOX.w - 640 * s) / 2)) throw new Error('dx ' + t.dx);
+    if (!near(t.dy, 0)) throw new Error('dy ' + t.dy);
+    /* Gegenprobe: anderes Seitenverhaeltnis -> kein zentrierter Balken */
+    const t2 = overlayTransform(300, 300, 100, 100);
+    if (!near(t2.scale, 3)) throw new Error('quadratisch: ' + t2.scale);
+    return 'scale=' + t.scale.toFixed(4) + ' dx=' + t.dx.toFixed(1);
+});
+
+check('Landmark-Punkte liegen gespiegelt UND im Rahmen', () => {
+    const src = document.createElement('canvas');
+    src.width = 640;
+    src.height = 480;
+
+    const keep = { a: analysisSource, p: window.photoMode, g: window.showGuide,
+                   m: window.showMap, lm: window._lastLandmarks, at: window._landmarksAt };
+
+    analysisSource = src;
+    window.photoMode = false;
+    window.showGuide = false;
+    window.showMap = false;
+    window.showLandmarks = true;
+    window.mirrorPreview = true;
+    window._lastLandmarks = sparseLandmarks();
+    window._landmarksAt = Date.now();
+
+    renderOverlay();
+
+    const markMirrored = expectedBox(0.6, 0.1);   /* gespiegelt: links */
+    const markRaw = expectedBox(0.4, 0.1);        /* ungespiegelt: rechts */
+    const clump = expectedBox(0.5, 0.9);
+
+    const gotMirror = inkNear(markMirrored.x, markMirrored.y);
+    const gotRaw = inkNear(markRaw.x, markRaw.y);
+    const gotClump = inkNear(clump.x, clump.y);
+
+    analysisSource = keep.a;
+    window.photoMode = keep.p;
+    window.showGuide = keep.g;
+    window.showMap = keep.m;
+    window._lastLandmarks = keep.lm;
+    window._landmarksAt = keep.at;
+
+    if (!gotClump) throw new Error('keine Punkte gezeichnet (Klumpen fehlt)');
+    if (!gotMirror) throw new Error('Marker fehlt an gespiegelter Stelle x='
+        + markMirrored.x.toFixed(1));
+    if (gotRaw) throw new Error('Marker liegt noch UNgespiegelt (Spiegelung fehlt)');
+    return 'gespiegelt bei x=' + markMirrored.x.toFixed(1)
+        + ', nicht bei x=' + markRaw.x.toFixed(1);
+});
+
+check('Status-Punkt: frisch vs. veraltet', () => {
+    const src = document.createElement('canvas');
+    src.width = 640;
+    src.height = 480;
+
+    const keep = { a: analysisSource, p: window.photoMode, lm: window._lastLandmarks };
+    analysisSource = src;
+    window.photoMode = false;
+
+    const el = document.getElementById('detect-badge');
+    window._lastLandmarks = new Array(468).fill({ x: 0.5, y: 0.5, z: 0 });
+    window._landmarksAt = Date.now();
+    renderOverlay();
+
+    const wantOn = T('beauty.detectOn').replace('{n}', '468');
+    if (el.textContent !== wantOn) throw new Error('frisch: "' + el.textContent + '" erwartet "' + wantOn + '"');
+    if (!el.classList.contains('on')) throw new Error('Klasse "on" fehlt');
+
+    window._landmarksAt = Date.now() - 5000;
+    renderOverlay();
+    const wantOff = T('beauty.detectOff');
+    if (el.textContent !== wantOff) throw new Error('veraltet: "' + el.textContent + '" erwartet "' + wantOff + '"');
+    if (el.classList.contains('on')) throw new Error('Klasse "on" bleibt');
+
+    analysisSource = keep.a;
+    window.photoMode = keep.p;
+    window._lastLandmarks = keep.lm;
+    window._landmarksAt = Date.now();
+    return 'frisch = ' + wantOn + ' / veraltet = ' + wantOff;
+});
+
+check('Landmark-Schalter blendet die Punkte wirklich ab', () => {
+    const src = document.createElement('canvas');
+    src.width = 640;
+    src.height = 480;
+
+    const keep = { a: analysisSource, p: window.photoMode, g: window.showGuide,
+                   m: window.showMap, lm: window._lastLandmarks, at: window._landmarksAt };
+    analysisSource = src;
+    window.photoMode = false;
+    window.showGuide = false;
+    window.showMap = false;
+    window._lastLandmarks = sparseLandmarks();
+    window._landmarksAt = Date.now();
+
+    const btn = document.getElementById('landmark-btn');
+    const wasOn = window.showLandmarks;
+
+    if (wasOn) window.toggleLandmarks(btn);
+    if (window.showLandmarks !== false) throw new Error('Schalter schaltet nicht auf aus');
+    const label = document.getElementById('landmark-label').textContent;
+    if (label.indexOf(T('beauty.landmarksOff')) === -1) {
+        throw new Error('Label zeigt nicht den Aus-Zustand: "' + label + '"');
+    }
+    renderOverlay();
+    const mark = expectedBox(0.6, 0.1);
+    if (inkNear(mark.x, mark.y)) throw new Error('Punkte sind noch da, obwohl aus');
+
+    window.toggleLandmarks(btn);
+    if (window.showLandmarks !== true) throw new Error('Schalter schaltet nicht wieder an');
+    if (document.getElementById('landmark-label').textContent.indexOf(T('beauty.landmarksOn')) === -1) {
+        throw new Error('Label zeigt nicht den An-Zustand');
+    }
+    renderOverlay();
+    if (!inkNear(mark.x, mark.y)) throw new Error('Punkte fehlen nach dem Einschalten');
+
+    analysisSource = keep.a;
+    window.photoMode = keep.p;
+    window.showGuide = keep.g;
+    window.showMap = keep.m;
+    window._lastLandmarks = keep.lm;
+    window._landmarksAt = keep.at;
+    return 'aus -> keine Punkte, an -> Punkte da';
+});
+
+check('Standbild: Foto-Vorschau + Punkte ohne frischen Frame', () => {
+    const keep = { lm: window._lastLandmarks, at: window._landmarksAt,
+                   a: analysisSource, p: window.photoMode };
+
+    window._lastLandmarks = SYNTH;
+    window._landmarksAt = Date.now();
+
+    const img = new Image();
+    img.src = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII=';
+    window.useUploadedPhoto(img);
+
+    if (window.photoMode !== true) throw new Error('photoMode nicht gesetzt');
+    if (window._lastLandmarks !== null) throw new Error('alte Kamerapunkte nicht verworfen');
+    const pv = document.getElementById('photo-preview');
+    if (pv.style.display !== 'block') throw new Error('Vorschau nicht eingeblendet');
+    if (!pv.src) throw new Error('Vorschau ohne Bild');
+
+    /* Ein Standbild liefert nur EINEN Frame — danach nie wieder ein
+       frischer Zeitstempel. Die Punkte muessen trotzdem sichtbar bleiben. */
+    const src = document.createElement('canvas');
+    src.width = 640;
+    src.height = 480;
+    analysisSource = src;
+    window._lastLandmarks = sparseLandmarks();
+    window._landmarksAt = 0;
+    renderOverlay();
+
+    const mark = expectedBox(0.6, 0.1);
+    const drawn = inkNear(mark.x, mark.y);
+
+    analysisSource = keep.a;
+    window.photoMode = keep.p;
+    window._lastLandmarks = keep.lm;
+    window._landmarksAt = keep.at;
+    window.hidePhotoPreview();
+
+    if (!drawn) throw new Error('Punkte fehlen im Foto-Modus (Zustand wird verworfen)');
+    return 'Vorschau sichtbar, Punkte auch ohne frischen Frame';
+});
+
+
+/* ============================================================
+   Frame-Diagnose — der Fehler aus dem Screenshot
+   ------------------------------------------------------------
+   "60 camera frames could not be processed": die Warnung kam und
+   blieb. Zwei Regeln muss dieselbe Codepfad erfuellen:
+     a) waehrend des Modell-Downloads NICHT zaehlen,
+     b) nach wieder laeuft NOCHMAL verschwinden.
+   Die Schwellen sind oben auf kleine Werte gestellt — der Pfad
+   selbst ist der Produktionspfad.
+   ============================================================ */
+
+function noteVisible() {
+    const n = document.getElementById('mediapipe-note');
+    return !!(n && n.style.display === 'block');
+}
+
+check('Frame-Diagnose: waehrend des Modell-Downloads nicht zaehlen', () => {
+    const note = document.getElementById('mediapipe-note');
+    note.style.display = 'none';
+    window._mpWarningSource = '';
+
+    mpResetFrameStats();                    // Gnadenfrist laeuft
+    for (let i = 0; i < MP_FAIL_LIMIT; i++) frameStreamFailed(new Error('Modell laedt noch'));
+
+    if (window._frameErrors !== 0) throw new Error('Fehler gezaehlt: ' + window._frameErrors);
+    if (noteVisible()) throw new Error('Warnung bereits sichtbar');
+    return '0 von ' + MP_FAIL_LIMIT + ' gezaehlt';
+});
+
+check('Frame-Diagnose: nach der Gnadenfrist Warnung mit echter Ursache', () => {
+    window.__mpExpireGrace();               // Gnade abgelaufen
+    for (let i = 0; i < MP_FAIL_LIMIT; i++) frameStreamFailed(new Error('simulierter Frame-Fehler'));
+
+    if (!noteVisible()) throw new Error('Warnung bleibt aus');
+    if (window._frameErrors !== MP_FAIL_LIMIT) throw new Error('Zaehler ' + window._frameErrors);
+    const detail = (document.getElementById('mediapipe-note-detail') || {}).textContent || '';
+    if (detail.indexOf('simulierter Frame-Fehler') === -1) {
+        throw new Error('echte Fehlermeldung fehlt im Hinweis: "' + detail + '"');
+    }
+    return detail.slice(0, 90);
+});
+
+check('Frame-Diagnose: Warnung verschwindet, wenn die Frames laufen', () => {
+    for (let i = 0; i < MP_OK_CLEAR; i++) frameStreamOk();
+    if (noteVisible()) throw new Error('Warnung ist noch da, obwohl alles laeuft');
+    if (window._frameErrors !== 0) throw new Error('Zaehler zurueckgesetzt: ' + window._frameErrors);
+    return 'nach ' + MP_OK_CLEAR + ' guten Frames weg';
+});
+
+
+/* ============================================================
+   E2E — nur im Modus ?e2e=1 (echte Bibliothek vom CDN)
+   ------------------------------------------------------------
+   Prueft die Kette, die der Nutzer sieht und die im Offline-Modus
+   nie anlaeuft:
+     CDN-FaceMesh -> foto -> handleResults(478 Landmarks)
+     -> renderOverlay -> Status-Punkt + gezeichnete Punkte
+
+   Der Kamerastart selbst ist hier bewusst NICHT Teil des Tests:
+   ein echter Videostrom laesst Chrome mit --dump-dom nie zur
+   Ruhe kommen (virtuelle Zeit haengt an den Frames). Die
+   Frame-Fehler-Logik decken die drei Pruefungen oben ab.
+   ============================================================ */
+
+function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
+
+function inkTotal() {
+    const cv = document.getElementById('face-canvas');
+    const d = cv.getContext('2d').getImageData(0, 0, cv.width, cv.height).data;
+    let n = 0;
+    for (let i = 3; i < d.length; i += 4) if (d[i] > 20) n++;
+    return n;
+}
+
+async function runE2E() {
+
+    try {
+
+        if (!window.__E2E) return;
+        console.log('E2E Schritt 1: Start');
+
+        if (typeof window.FaceMesh !== 'function') {
+            pass('E2E: MediaPipe-Bibliothek vom CDN', 'uebersprungen (CDN nicht erreichbar)');
+            return;
+        }
+        pass('E2E: MediaPipe-Bibliothek vom CDN', 'FaceMesh da');
+
+        /* camera.js ruft initMediaPipe() beim Laden SELBST auf (Zeile
+           am Dateiende). Wer hier noch einmal new FaceMesh(...) bildet,
+           laedt das WASM-Modell zweimal und erntet
+           "Module.arguments has been replaced with plain arguments_" —
+           also: warten, bis die Eigeninitialisierung fertig ist, und
+           nur bei Misserfolg selbst nachlegen. */
+        let ready = !!window.mediapipeReady;
+
+        for (let i = 0; i < 80 && !ready; i++) {
+            await sleep(250);
+            ready = !!window.mediapipeReady;
+        }
+
+        if (!ready) {
+
+            const engine = await initMediaPipe();
+            if (!engine) throw new Error('initMediaPipe: ' + (window.mediapipeError || 'unbekannt'));
+
+        }
+
+        console.log('E2E Schritt 2: mediapipeReady=' + ready);
+        /* Der Kamerastart von camera.js liefert hier ein Dauer-Video —
+           solange Frames laufen, kommt Chrome mit --dump-dom nie zur
+           Ruhe (virtuelle Zeit laeuft nicht ab). Der E2E-Test prueft
+           den FOTO-Pfad, also Kamera hier bewusst anhalten. */
+        try { window.stopCamera(); } catch (e) { /* egal */ }
+
+        /* --- echtes Gesichtsfoto -> echte Landmarks ------------------ */
+        const img = new Image();
+
+        const loaded = await new Promise(res => {
+            img.onload = () => res(true);
+            img.onerror = () => res(false);
+            img.src = 'face-fixture.png';
+        });
+
+        if (!loaded) {
+            pass('E2E: Landmarks auf echtem Foto',
+                'uebersprungen (kein tools/face-fixture.png)');
+            return;
+        }
+
+        /* useUploadedPhoto setzt analysisSource (die Quelle, aus der
+           handleResults die Groesse nimmt) und schickt das Bild das
+           erste Mal. Das Modell (WASM + tflite, mehrere MB) laedt aber
+           erst beim ersten send() nach — ein einziger Versuch landet
+           dann im Fehler aus dem Screenshot ("cannot read buffer",
+           "still waiting on run dependencies"). Deshalb erneut
+           schicken, bis die Landmarks da sind. */
+        window.useUploadedPhoto(img);
+
+        console.log('E2E Schritt 3: Foto laden, letzter Fehler bislang: ' + (window.mediapipeError || '-'));
+        let lm = null;
+        let lastErr = '';
+
+        for (let i = 0; i < 60 && !lm; i++) {
+
+            if (i > 0) {
+
+                try {
+                    await window.runFaceMeshOn(img);
+                }
+                catch (e) {
+                    lastErr = (e && e.message) ? e.message : String(e);
+                }
+
+            }
+
+            lm = window._lastLandmarks;
+            if (!lm) await sleep(250);
+
+        }
+
+        console.log('E2E Schritt 4: lm=' + (lm ? lm.length : 'null'));
+        if (!lm || !lm.length) {
+            throw new Error('keine Landmarks vom echten Foto' +
+                (lastErr ? ' (letzter Fehler: ' + lastErr + ')' : ''));
+        }
+
+        window.showGuide = false;
+        window.showMap = false;
+        window.showLandmarks = true;
+        window.photoMode = true;
+        renderOverlay();
+
+        const badge = document.getElementById('detect-badge');
+        const label = badge ? badge.textContent.trim() : '';
+
+        if (label.indexOf(String(lm.length)) === -1) {
+            throw new Error('Status-Punkt zeigt nicht die Punktzahl: "' + label + '"');
+        }
+
+        const ink = inkTotal();
+        if (ink < 50) throw new Error('zu wenig Pixel gezeichnet: ' + ink);
+
+        const note = document.getElementById('mediapipe-note');
+        if (note && note.style.display === 'block') {
+            throw new Error('Warnung sichtbar: ' +
+                (note.textContent || '').trim().replace(/\s+/g, ' ').slice(0, 140));
+        }
+
+        pass('E2E: Landmarks auf echtem Foto',
+            lm.length + ' Punkte, Status "' + label + '", ' + ink + ' Pixel');
+
+    }
+    catch (e) {
+        fail('E2E: echte MediaPipe-Pipeline', (e && e.message) || e);
+    }
+
+}
+
+runE2E().then(() => { window.__e2eDone = true; });
+
+</script>
+</body>
+</html>

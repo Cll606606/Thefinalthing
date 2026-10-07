@@ -3,6 +3,75 @@
 // KI-Datei — wichtig vor allem fürs Handy und für iPhones.
 window.currentBudget = 100;
 
+// --- Auswahl am Anfang der Analyse: Modell / Sprache / Umfang ---
+// "auto" heisst: Server entscheidet bzw. Sprache folgt der Oberflaeche.
+window.aiModel = 'auto';
+window.aiLang = 'auto';
+window.aiMode = 'standard';
+
+// Umfang -> Vorgaben fuer den Prompt. Die Schrittzahl ist die einzige
+// Stelle, an der "wie lang" wirklich etwas bedeutet: alles andere waere
+// nur Fliesstext drumherum.
+const AI_MODES = {
+    quick: {
+        steps: 3,
+        rule: 'Create EXACTLY 3 steps - the bare minimum routine, nothing optional. '
+            + 'Every step must still be specific to THIS face. Keep each field one short '
+            + 'sentence, no repetition, no alternatives.'
+    },
+    standard: {
+        steps: 6,
+        rule: 'Create EXACTLY 6 steps - no more, no fewer. Stop immediately after 6 steps. '
+            + 'NEVER repeat a product, category, shade, placement or technique.'
+    },
+    detailed: {
+        steps: 6,
+        rule: 'Create EXACTLY 6 steps - no more, no fewer. Stop immediately after 6 steps. '
+            + 'NEVER repeat a product, category, shade, placement or technique. '
+            + 'Write for a BEGINNER who has never done this: explain the reason behind each '
+            + 'step in plain words, name the amount to use, and mention the single most '
+            + 'common mistake for this face shape.'
+    }
+};
+
+/* WICHTIG: der Helfer darf nicht "aiMode" heissen - der Zustand sitzt
+   unter window.aiMode (gleiche Global-Eigenschaft!) und wuerde die
+   Funktion ueberschreiben, das Ergebnis waere "aiMode is not a function". */
+function aiModeCfg() {
+    return AI_MODES[window.aiMode] || AI_MODES.standard;
+}
+
+// Antwortsprache: "auto" = Sprache der Oberflaeche (sonst Englisch).
+// Feste, kurze Anweisung an das Modell - der Rest des Prompts bleibt
+// Englisch, damit die Feldnamen stabil bleiben.
+const AI_LANGS = {
+    de: 'Write EVERY value in the JSON in GERMAN (Deutsch). Keep the JSON keys exactly as '
+        + 'specified (category, product, placement, shade, technique, why, searchQuery, '
+        + 'summary, steps, searchKeyword). Brand and product names stay as they are.',
+    en: 'Write EVERY value in the JSON in ENGLISH. Keep the JSON keys exactly as specified.',
+    es: 'Write EVERY value in the JSON in SPANISH (Espanol). Keep the JSON keys exactly as '
+        + 'specified (category, product, placement, shade, technique, why, searchQuery, '
+        + 'summary, steps, searchKeyword). Brand and product names stay as they are.',
+    fr: 'Write EVERY value in the JSON in FRENCH (Francais). Keep the JSON keys exactly as '
+        + 'specified (category, product, placement, shade, technique, why, searchQuery, '
+        + 'summary, steps, searchKeyword). Brand and product names stay as they are.'
+};
+
+function aiLangRule() {
+    if (window.aiLang && window.aiLang !== 'auto') return AI_LANGS[window.aiLang] || '';
+    /* Quelle der Wahrheit ist die i18n-Oberflaeche selbst: I18N.lang bzw.
+       document.documentElement.lang (beides setzt i18n.js). Ein eigenes
+       Flag waere leicht zu vergessen - so hakt der Prompt automatisch an,
+       was der Nutzer gerade liest. */
+    const ui = String(
+        (window.I18N && window.I18N.lang) || document.documentElement.lang || ''
+    ).slice(0, 2).toLowerCase();
+    if (ui && AI_LANGS[ui]) {
+        return AI_LANGS[ui] + ' (This follows the interface language the user is reading.)';
+    }
+    return AI_LANGS.en;
+}
+
 // Marken-Akzentfarbe lesen: statt hartkodiertem Pink nehmen wir immer
 // die aktuelle Akzentfarbe aus dem CSS (derzeit Teal). So bleibt die
 // Beauty-Seite automatisch im Look der übrigen App.
@@ -19,7 +88,9 @@ const T = (k) => (window.T ? window.T(k) : k);
 
 // Deduplicate + cap AI steps: small local models sometimes repeat themselves
 // after step 6 or drift into extra steps. This keeps exactly 6 unique ones.
-function cleanSteps(steps) {
+// `cap` folgt der Umfangs-Wahl; 6 ist die Obergrenze, damit ein Modell,
+// das mehr liefert, das Ergebnis nicht aufblaeht.
+function cleanSteps(steps, cap = 6) {
     if (!Array.isArray(steps)) return [];
     const norm = s => String(s || '').toLowerCase().replace(/\s+/g, ' ').trim();
     const seenProducts = new Set();
@@ -33,7 +104,7 @@ function cleanSteps(steps) {
         if (product) seenProducts.add(product);
         seenSig.add(sig);
         out.push(s);
-        if (out.length >= 6) break;
+        if (out.length >= cap) break;
     }
     return out;
 }
@@ -46,7 +117,9 @@ async function serverJson(prompt, retries = 2) {
             const res = await fetch('/api/text-ai', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ prompt }),
+                // Modellwahl mitschicken. "auto" = Server nimmt seine
+                // eigene Fallback-Kette in der konfigurierten Reihenfolge.
+                body: JSON.stringify({ prompt, model: window.aiModel || 'auto' }),
                 signal: window.aiController ? window.aiController.signal : undefined
             });
             if (res.status === 503 && attempt < retries) {
@@ -62,6 +135,10 @@ async function serverJson(prompt, retries = 2) {
                     'The server has no AI key set up.');
             }
             if (!obj.ok || !obj.data) throw new Error(obj.error || 'Cloud AI failed.');
+            // Merken, welches Modell wirklich geantwortet hat (kann vom
+            // gewaehlten abweichen, wenn es ausfaellt und der Server
+            // weiter die Kette durchprobiert).
+            window.aiModelUsed = obj.model || window.aiModelUsed;
             return obj.data;
         } catch (e) {
             if (attempt < retries && (e.message.includes('503') || e.message.includes('Failed to fetch') || e.message.includes('NetworkError'))) {
@@ -96,6 +173,53 @@ window.setBudget = (val, el) => {
     el.classList.add('picked');
     const custom = document.getElementById('custom-budget');
     if (custom) custom.value = '';
+};
+
+// --- Auswahl-Chips: Modell / Sprache / Umfang ---
+// Ein Muster fuer alle drei: Wert merken, Geschwister abwaehlen, den
+// gewaehlten Chip markieren. "data-pick" haelt die Chip-Gruppe auseinander.
+function pickChip(value, el, group) {
+    const state = { model: 'aiModel', lang: 'aiLang', mode: 'aiMode' }[group];
+    window[state] = value;
+    document.querySelectorAll('[data-pick="' + group + '"]').forEach(c => {
+        c.classList.toggle('picked', c === el);
+    });
+}
+
+window.setAiModel = (val, el) => pickChip(val, el, 'model');
+window.setAiLang = (val, el) => pickChip(val, el, 'lang');
+window.setAiMode = (val, el) => pickChip(val, el, 'mode');
+
+// Modellmenue aus der Server-Konfiguration fuellen. Der Browser erfindet
+// keine Modellnamen - sonst zeigt er Modelle, die der Key gar nicht hat,
+// und der Aufruf laeuft ins Leere. Ohne Antwort (offline, kein Login)
+// bleibt einfach "Auto" stehen, das ist immer gueltig.
+window.loadAiModels = async () => {
+    const box = document.getElementById('ai-model-chips');
+    if (!box) return;
+    try {
+        const res = await fetch('/api/ai-models', { headers: { 'Accept': 'application/json' } });
+        if (!res.ok) return;
+        const obj = await res.json();
+        const models = Array.isArray(obj.models) ? obj.models : [];
+        if (!models.length) return;
+
+        // "Auto" bleibt immer erste Option.
+        let html = '<button class="chip-alt picked" data-pick="model" data-default="true" '
+            + 'onclick="setAiModel(\'auto\', this)" data-i18n="b.aiAuto">\u2699 Auto</button>';
+        models.forEach(m => {
+            const safe = String(m).replace(/[^A-Za-z0-9._-]/g, '');
+            if (!safe) return;
+            html += '<button class="chip-alt" data-pick="model" '
+                + 'onclick="setAiModel(\'' + safe + '\', this)">' + safe + '</button>';
+        });
+        box.innerHTML = html;
+
+        // Neues Markup einfuegen -> Labels in der aktuellen Sprache setzen.
+        if (window.I18N && typeof window.I18N.apply === 'function') window.I18N.apply();
+    } catch (e) {
+        // Kein Netz/kein Key: "Auto" ist bereits da und reicht.
+    }
 };
 
 // Numbers-only custom budget. Strips every non-numeric character so a
@@ -223,6 +347,8 @@ window.startAnalysis = async () => {
         if (toneBadge && f.tone && f.tone !== "--") toneBadge.innerText = `Skin: ${f.tone}`;
 
         // Optimized prompt: professional MUA detail so steps are specific, not generic
+        const mode = aiModeCfg();
+        const langRule = aiLangRule();
         const prompt = `You are a high-end professional Makeup Artist. Create a tailored tutorial for a ${f.face} face, ${f.eyes} eyes with ${f.eyeTilt} eye tilt, ${f.lips} lips, ${f.brows} brows, ${f.cheekbones} cheekbones, ${f.tone} skin. Style: ${styleReq}. Preferences: ${extraFeatures}. Budget total: $${window.currentBudget}.${geoLine}
 
 THE MOST IMPORTANT RULE: every step must be individually adapted to THIS user's measurements. Map them one-by-one:
@@ -232,7 +358,9 @@ THE MOST IMPORTANT RULE: every step must be individually adapted to THIS user's 
 - CHEEKS (${f.cheekbones}): ${f.cheekbones === 'High & Defined' ? 'blush just under the cheekbone, blended up to the temple' : f.cheekbones === 'Soft' ? 'blush on the apples, swept up the temple to add lift' : 'blush at the apples, a whisper of contour underneath'}.
 - SKIN (${f.tone}): every base and shade undertone must be chosen for ${f.tone} skin (warm/cool/neutral as appropriate).
 
-Create EXACTLY 6 steps - no more, no fewer. Stop immediately after 6 steps. NEVER repeat a product, category, shade, placement or technique. Every step must be specific to THIS face shape, skin tone and style - generic advice like "apply some blush" is FORBIDDEN. Write like a beauty editor, not a robot.
+${mode.rule} Every step must be specific to THIS face shape, skin tone and style - generic advice like "apply some blush" is FORBIDDEN. Write like a beauty editor, not a robot.
+
+LANGUAGE: ${langRule}
 
 For EVERY step include:
 - category: the product group, e.g. Base, Bronzer, Blush, Eyes, Brows, Lips
@@ -243,7 +371,7 @@ For EVERY step include:
 - why: one pro sentence on how this step creates the ${styleReq} effect
 - searchQuery: a short shoppable phrase for the product, e.g. "drugstore warm-toned foundation"
 
-Return valid JSON ONLY with exactly 6 steps: {"summary":"..","steps":[{"category":"..","product":"..","placement":"..","shade":"..","technique":"..","why":"..","searchQuery":".."}],"searchKeyword":"e.g. soft glam makeup bundle"}`;
+Return valid JSON ONLY with exactly ${mode.steps} steps: {"summary":"..","steps":[{"category":"..","product":"..","placement":"..","shade":"..","technique":"..","why":"..","searchQuery":".."}],"searchKeyword":"e.g. soft glam makeup bundle"}`;
 
         statusText.innerText = T('l.generating');
         let data;
@@ -258,8 +386,8 @@ Return valid JSON ONLY with exactly 6 steps: {"summary":"..","steps":[{"category
         }
 
         // Safety net: even if the model repeated itself or added extra steps,
-        // show at most 6 unique, non-repeating steps.
-        data.steps = cleanSteps(data.steps);
+        // show only unique, non-repeating steps - as many as chosen.
+        data.steps = cleanSteps(data.steps, mode.steps);
 
         document.getElementById('ai-summary').innerText = data.summary || "Your custom tutorial is ready.";
         renderTutorial(data);

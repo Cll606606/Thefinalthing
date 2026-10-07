@@ -1,0 +1,910 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="UTF-8">
+<title>Aestra · WebLLM-Messseite</title>
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="robots" content="noindex, nofollow">
+<style>
+:root{
+  --bg:#0a0a0b; --panel:#131316; --panel2:#1a1a1f; --line:#2a2a31;
+  --fg:#e9e9ee; --dim:#9a9aa6; --acc:#14b8a6; --ok:#22c55e; --bad:#ef4444; --warn:#f59e0b;
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--fg);
+  font:15px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+  -webkit-text-size-adjust:100%}
+header{position:sticky;top:0;z-index:9;background:rgba(10,10,11,.92);
+  backdrop-filter:blur(8px);border-bottom:1px solid var(--line);
+  padding:12px 16px;display:flex;gap:12px;align-items:center;flex-wrap:wrap}
+header h1{font-size:16px;margin:0;font-weight:650;letter-spacing:.02em}
+header a{color:var(--dim);font-size:13px;text-decoration:none}
+main{max-width:960px;margin:0 auto;padding:16px 16px 80px}
+section{background:var(--panel);border:1px solid var(--line);border-radius:12px;
+  padding:16px;margin-bottom:16px}
+h2{font-size:13px;text-transform:uppercase;letter-spacing:.09em;color:var(--dim);
+  margin:0 0 12px;font-weight:650}
+h3{font-size:13px;margin:16px 0 8px;color:var(--dim);font-weight:600}
+.row{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+label{font-size:13px;color:var(--dim)}
+input,select,textarea,button{font:inherit;color:var(--fg);background:var(--panel2);
+  border:1px solid var(--line);border-radius:8px;padding:8px 10px}
+input:focus,select:focus,textarea:focus{outline:none;border-color:var(--acc)}
+textarea{width:100%;font:12px/1.45 ui-monospace,SFMono-Regular,Menlo,monospace;
+  min-height:260px;white-space:pre;overflow:auto;tab-size:2}
+button{cursor:pointer;background:#232329;font-weight:600;font-size:14px}
+button:hover{border-color:var(--acc)}
+button:disabled{opacity:.45;cursor:not-allowed}
+button.primary{background:var(--acc);border-color:var(--acc);color:#04211d}
+button.small{padding:6px 9px;font-size:12px}
+table{width:100%;border-collapse:collapse;font-size:13px}
+th,td{text-align:left;padding:7px 8px;border-bottom:1px solid var(--line);vertical-align:top}
+th{color:var(--dim);font-weight:600;font-size:12px}
+td.k{color:var(--dim);width:44%}
+.badge{display:inline-block;padding:1px 7px;border-radius:20px;font-size:11px;
+  font-weight:700;letter-spacing:.03em}
+.badge.ok{background:rgba(34,197,94,.15);color:var(--ok)}
+.badge.bad{background:rgba(239,68,68,.15);color:var(--bad)}
+.badge.warn{background:rgba(245,158,11,.15);color:var(--warn)}
+.badge.dim{background:#232329;color:var(--dim)}
+.bar{height:6px;background:#232329;border-radius:6px;overflow:hidden;margin-top:8px}
+.bar i{display:block;height:100%;width:0;background:var(--acc);transition:width .2s}
+.hint{font-size:12.5px;color:var(--dim);margin-top:8px}
+.err{font-size:13px;color:var(--bad);margin-top:8px;white-space:pre-wrap}
+pre.out{background:#0d0d0f;border:1px solid var(--line);border-radius:8px;padding:12px;
+  font:12px/1.5 ui-monospace,SFMono-Regular,Menlo,monospace;white-space:pre-wrap;
+  word-break:break-word;max-height:420px;overflow:auto;margin:10px 0 0;min-height:60px}
+.checks{list-style:none;padding:0;margin:12px 0 0;font-size:13.5px}
+.checks li{padding:5px 0;border-bottom:1px dashed var(--line);display:flex;
+  justify-content:space-between;gap:12px;align-items:baseline}
+.checks li:last-child{border-bottom:none}
+.checks .lbl{color:var(--fg)}
+.grid2{display:grid;grid-template-columns:1fr 1fr;gap:16px}
+@media(max-width:720px){.grid2{grid-template-columns:1fr}}
+.feat{display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:10px}
+.feat label{display:block;margin-bottom:4px}
+.feat select,.feat input{width:100%}
+details{border:1px solid var(--line);border-radius:8px;padding:10px 12px;margin-top:12px}
+summary{cursor:pointer;font-size:13px;color:var(--dim);font-weight:600}
+.geo{display:grid;grid-template-columns:repeat(auto-fit,minmax(120px,1fr));gap:8px;margin-top:10px}
+.geo label{display:block;font-size:11.5px;margin-bottom:3px}
+.geo input{width:100%}
+.hist{max-height:300px;overflow:auto}
+.note{background:rgba(20,184,166,.07);border:1px solid rgba(20,184,166,.3);
+  border-radius:8px;padding:10px 12px;font-size:13px;margin-top:12px}
+.mono{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:12px}
+.chip{display:inline-block;background:#232329;border:1px solid var(--line);
+  border-radius:20px;padding:2px 9px;font-size:11.5px;color:var(--dim);margin:2px 3px 2px 0}
+</style>
+</head>
+<body>
+<header>
+  <h1>Aestra · WebLLM-Messseite</h1>
+  <span id="gpu-badge" class="badge dim">WebGPU prüfen …</span>
+  <a href="/beauty">← zur App</a>
+</header>
+
+<main>
+
+<section>
+  <h2>1 · Gerät &amp; Browser</h2>
+  <div id="env-body"><span class="badge dim">wird geprüft</span></div>
+  <div class="note">
+    WebGPU gibt es nur in einem <b>sicheren Kontext</b>. Auf dem Handy geht das ausschließlich
+    über HTTPS: <span class="mono">./make_cert.sh</span> und dann
+    <span class="mono">AESTRA_HOST=0.0.0.0 ./run.sh</span>. Ein Aufruf über
+    <span class="mono">http://192.168.x.x:…</span> meldet „kein WebGPU“, obwohl das Handy es kann.
+  </div>
+</section>
+
+<section>
+  <h2>2 · Modell laden</h2>
+  <div class="row">
+    <label for="model-select">Modell</label>
+    <select id="model-select" style="flex:1;min-width:220px"><option>wird geladen …</option></select>
+    <button id="btn-refresh" class="small">Liste neu laden</button>
+    <button id="btn-load" class="primary" disabled>Modell laden</button>
+  </div>
+  <div class="bar"><i id="load-bar"></i></div>
+  <div id="load-log" class="hint">Noch nicht geladen.</div>
+  <div id="load-err" class="err"></div>
+  <div id="model-info" class="hint"></div>
+</section>
+
+<section>
+  <h2>3 · Prompt</h2>
+  <div class="feat">
+    <div><label>Gesichtsform</label><select id="f-face"></select></div>
+    <div><label>Augen</label><select id="f-eyes"></select></div>
+    <div><label>Augenneigung</label><select id="f-tilt"></select></div>
+    <div><label>Lippen</label><select id="f-lips"></select></div>
+    <div><label>Brauen</label><select id="f-brows"></select></div>
+    <div><label>Wangenknochen</label><select id="f-cheeks"></select></div>
+    <div><label>Hautton</label><select id="f-tone"></select></div>
+    <div><label>Stil</label><input id="f-style" value="Natural Glam"></div>
+    <div><label>Budget ($)</label><input id="f-budget" type="number" value="100" min="1"></div>
+    <div><label>Umfang</label><select id="f-mode">
+      <option value="quick">quick · 3 Schritte</option>
+      <option value="standard" selected>standard · 6 Schritte</option>
+      <option value="detailed">detailed · 6 Schritte, Anfänger</option>
+    </select></div>
+    <div><label>Sprache</label><select id="f-lang">
+      <option value="de" selected>deutsch</option>
+      <option value="en">englisch</option>
+      <option value="fr">französisch</option>
+      <option value="es">spanisch</option>
+    </select></div>
+    <div><label>Zusatzwünsche</label><input id="f-extra" placeholder="z. B. waterproof, ohne Glitzer"></div>
+  </div>
+
+  <details>
+    <summary>Gemessene Gesichtsgeometrie (Vorgabe aus dem FaceMesh)</summary>
+    <div class="geo">
+      <div><label>Längen-/Breiten-Verhältnis</label><input id="g-ratio" type="number" step="0.01" value="1.42"></div>
+      <div><label>Abweichung Golden. Schn. (0–1)</label><input id="g-phi" type="number" step="0.01" value="0.12"></div>
+      <div><label>Kieferwinkel (°)</label><input id="g-jaw" type="number" step="1" value="118"></div>
+      <div><label>Stirn/Breite</label><input id="g-wf" type="number" step="0.01" value="0.94"></div>
+      <div><label>Kiefer/Breite</label><input id="g-wj" type="number" step="0.01" value="0.92"></div>
+      <div><label>Kinn/Kiefer</label><input id="g-chin" type="number" step="0.01" value="0.81"></div>
+      <div><label>Zonen-Abweichung (0–1)</label><input id="g-zone" type="number" step="0.01" value="0.07"></div>
+      <div><label>Fünf-Augen-Verhältnis</label><input id="g-five" type="number" step="0.01" value="4.82"></div>
+      <div><label>Innen-Augenabstand</label><input id="g-gap" type="number" step="0.01" value="0.94"></div>
+    </div>
+    <div class="row" style="margin-top:10px">
+      <label><input id="g-on" type="checkbox" checked> Geometriezeile in den Prompt aufnehmen</label>
+    </div>
+  </details>
+
+  <div class="row" style="margin-top:12px">
+    <button id="btn-rebuild">Prompt neu bauen</button>
+    <span id="prompt-info" class="hint"></span>
+  </div>
+  <textarea id="prompt" spellcheck="false"></textarea>
+</section>
+
+<section>
+  <h2>4 · Ausführen</h2>
+  <div class="row">
+    <button id="btn-run" class="primary" disabled>Lokal ausführen</button>
+    <button id="btn-stop" disabled>Stopp</button>
+    <label><input id="opt-structured" type="checkbox"> strukturierte Ausgabe (response_format) erzwingen</label>
+    <span id="run-status" class="hint"></span>
+  </div>
+  <div class="bar"><i id="run-bar"></i></div>
+  <div id="run-err" class="err"></div>
+  <pre class="out" id="out">(Ausgabe erscheint hier)</pre>
+
+  <div class="grid2" style="margin-top:16px">
+    <div>
+      <h3>Prüfung · lokal</h3>
+      <ul class="checks" id="checks-local"><li><span class="lbl">noch kein Lauf</span></li></ul>
+      <h3>Metriken</h3>
+      <table id="metrics"><tbody><tr><td class="k">noch kein Lauf</td><td>—</td></tr></tbody></table>
+    </div>
+    <div>
+      <h3>Vergleich · Gemini-Antwort einfügen</h3>
+      <textarea id="gemini-in" style="min-height:150px"
+        placeholder='JSON der App-Ansicht hier einfügen, dann wird dasselbe Prüfraster angewendet'></textarea>
+      <div class="row" style="margin-top:8px">
+        <button id="btn-gemini" class="small">Gegenprüfung starten</button>
+        <label>Anzahl Schritte erwartet <input id="gemini-n" type="number" value="6" style="width:64px"></label>
+      </div>
+      <h3>Prüfung · eingefügt</h3>
+      <ul class="checks" id="checks-gemini"><li><span class="lbl">noch nichts eingefügt</span></li></ul>
+    </div>
+  </div>
+</section>
+
+<section>
+  <h2>5 · Mehrfachläufe</h2>
+  <div class="row">
+    <label>Wiederholungen <input id="batch-n" type="number" value="5" min="1" max="30" style="width:70px"></label>
+    <button id="btn-batch" disabled>Reihe laufen lassen</button>
+    <button id="btn-copy" class="small">Ergebnis als Markdown kopieren</button>
+    <button id="btn-clear" class="small">Leeren</button>
+    <span id="batch-status" class="hint"></span>
+  </div>
+  <div class="hist" style="margin-top:12px">
+    <table><thead><tr>
+      <th>#</th><th>JSON</th><th>Schritte</th><th>Dupl.</th><th>Felder</th><th>Sprache</th>
+      <th>ms</th><th>tok/s</th><th>Zeit</th>
+    </tr></thead><tbody id="hist"></tbody></table>
+  </div>
+</section>
+
+<section>
+  <h2>6 · Protokoll für die Doku</h2>
+  <pre class="out" id="report" style="max-height:320px">(nach dem ersten Lauf gefüllt)</pre>
+  <div class="row" style="margin-top:8px">
+    <button id="btn-report" class="small">Protokoll aktualisieren</button>
+    <button id="btn-copy-report" class="small">Protokoll kopieren</button>
+  </div>
+</section>
+
+</main>
+
+<script type="module">
+const $ = (id) => document.getElementById(id);
+
+const AI_MODES = {
+  quick: {
+    steps: 3,
+    rule: 'Create EXACTLY 3 steps - the bare minimum routine, nothing optional. '
+      + 'Every step must still be specific to THIS face. Keep each field one short '
+      + 'sentence, no repetition, no alternatives.'
+  },
+  standard: {
+    steps: 6,
+    rule: 'Create EXACTLY 6 steps - no more, no fewer. Stop immediately after 6 steps. '
+      + 'NEVER repeat a product, category, shade, placement or technique.'
+  },
+  detailed: {
+    steps: 6,
+    rule: 'Create EXACTLY 6 steps - no more, no fewer. Stop immediately after 6 steps. '
+      + 'NEVER repeat a product, category, shade, placement or technique. '
+      + 'Write for a BEGINNER who has never done this: explain the reason behind each '
+      + 'step in plain words, name the amount to use, and mention the single most '
+      + 'common mistake for this face shape.'
+  }
+};
+
+const AI_LANGS = {
+  de: 'Write EVERY value in the JSON in GERMAN (Deutsch). Keep the JSON keys exactly as '
+    + 'specified (category, product, placement, shade, technique, why, searchQuery, '
+    + 'summary, steps, searchKeyword). Brand and product names stay as they are.',
+  en: 'Write EVERY value in the JSON in ENGLISH. Keep the JSON keys exactly as specified.',
+  es: 'Write EVERY value in the JSON in SPANISH (Espanol). Keep the JSON keys exactly as '
+    + 'specified (category, product, placement, shade, technique, why, searchQuery, '
+    + 'summary, steps, searchKeyword). Brand and product names stay as they are.',
+  fr: 'Write EVERY value in the JSON in FRENCH (Francais). Keep the JSON keys exactly as '
+    + 'specified (category, product, placement, shade, technique, why, searchQuery, '
+    + 'summary, steps, searchKeyword). Brand and product names stay as they are.'
+};
+
+const FEATURES = {
+  'f-face': ['Oval', 'Round', 'Square', 'Heart', 'Diamond', 'Long'],
+  'f-eyes': ['Round', 'Almond', 'Narrow', 'Hooded'],
+  'f-tilt': ['Upturned', 'Neutral', 'Downturned'],
+  'f-lips': ['Thin', 'Balanced', 'Full'],
+  'f-brows': ['High Arch', 'Soft Arch', 'Straight'],
+  'f-cheeks': ['High & Defined', 'Moderate', 'Soft'],
+  'f-tone': ['Fair', 'Light', 'Medium', 'Deep']
+};
+
+const DEFAULTS = {
+  'f-face': 'Oval', 'f-eyes': 'Round', 'f-tilt': 'Neutral', 'f-lips': 'Balanced',
+  'f-brows': 'Soft Arch', 'f-cheeks': 'Soft', 'f-tone': 'Light'
+};
+
+const REQUIRED_FIELDS = ['category', 'product', 'placement', 'shade', 'technique', 'why', 'searchQuery'];
+
+let webllm = null;
+let engine = null;
+let loadedModel = null;
+let history = [];
+let lastData = null;
+let runCount = 0;
+
+function fillFeatures() {
+  for (const id in FEATURES) {
+    const sel = $(id);
+    sel.innerHTML = FEATURES[id].map(v =>
+      `<option value="${v.replace(/&/g, '&amp;')}"${v === DEFAULTS[id] ? ' selected' : ''}>`
+      + `${v.replace(/&/g, '&amp;')}</option>`).join('');
+  }
+}
+
+function val(id) { return $(id).value; }
+
+function buildGeoLine() {
+  if (!$('g-on').checked) return '';
+  const n = (id) => parseFloat(val(id)) || 0;
+  const pct = (v) => `${Math.round(v * 100)}%`;
+  const ratio = n('g-ratio'), phi = n('g-phi'), jaw = n('g-jaw');
+  const wf = n('g-wf'), wj = n('g-wj'), chin = n('g-chin');
+  const zone = n('g-zone'), five = n('g-five'), gap = n('g-gap');
+  return `\nMEASURED FACE GEOMETRY (math, use for precise placement): `
+    + `length/cheek-width = ${ratio.toFixed(2)} (golden ratio target 1.618, `
+    + `deviation ${pct(phi)}), jaw angle = ${Math.round(jaw)}°, `
+    + `forehead/cheek/jaw width = ${pct(wf)} / ${pct(1)} / ${pct(wj)}, `
+    + `chin width = ${pct(chin)} of jaw width, `
+    + `three-zone balance (hairline→brow→nose→chin) deviation = ${pct(zone)} `
+    + `(0% = perfectly equal thirds), five-eye ratio = ${five.toFixed(2)} `
+    + `(ideal 5.00), inner eye gap = ${gap.toFixed(2)} × one eye width (ideal 1.00).`;
+}
+
+function buildPrompt() {
+  const f = {
+    face: val('f-face'), eyes: val('f-eyes'), eyeTilt: val('f-tilt'),
+    lips: val('f-lips'), brows: val('f-brows'), cheekbones: val('f-cheeks'),
+    tone: val('f-tone')
+  };
+  const styleReq = val('f-style') || 'Natural Glam';
+  const extraFeatures = val('f-extra');
+  const budget = val('f-budget') || '100';
+  const mode = AI_MODES[val('f-mode')] || AI_MODES.standard;
+  const langRule = AI_LANGS[val('f-lang')] || AI_LANGS.en;
+  const geoLine = buildGeoLine();
+
+  const prompt = `You are a high-end professional Makeup Artist. Create a tailored tutorial for a ${f.face} face, ${f.eyes} eyes with ${f.eyeTilt} eye tilt, ${f.lips} lips, ${f.brows} brows, ${f.cheekbones} cheekbones, ${f.tone} skin. Style: ${styleReq}. Preferences: ${extraFeatures}. Budget total: $${budget}.${geoLine}
+
+THE MOST IMPORTANT RULE: every step must be individually adapted to THIS user's measurements. Map them one-by-one:
+- EYES (${f.eyes} + ${f.eyeTilt}): pick exact eye techniques that flatter this shape, e.g. hooded = no product above the crease until the browbone / round = deepen the outer V / narrow = open it with a light inner corner and clean liner / upturned or downturned = place the wing along the corrected angle.
+- LIPS (${f.lips}): ${f.lips === 'Thin' ? 'subtle overline that stays inside the natural lip border, focus on the center' : f.lips === 'Full' ? 'stay inside your natural border, emphasize the cupid\'s bow' : 'sculpt right along the natural border'}.
+- BROWS (${f.brows}): ${f.brows === 'High Arch' ? 'soften the arch with fine hair strokes' : f.brows === 'Straight' ? 'add a gentle curve to lift the face' : 'clean up with clear gel and defined strokes'}.
+- CHEEKS (${f.cheekbones}): ${f.cheekbones === 'High & Defined' ? 'blush just under the cheekbone, blended up to the temple' : f.cheekbones === 'Soft' ? 'blush on the apples, swept up the temple to add lift' : 'blush at the apples, a whisper of contour underneath'}.
+- SKIN (${f.tone}): every base and shade undertone must be chosen for ${f.tone} skin (warm/cool/neutral as appropriate).
+
+${mode.rule} Every step must be specific to THIS face shape, skin tone and style - generic advice like "apply some blush" is FORBIDDEN. Write like a beauty editor, not a robot.
+
+LANGUAGE: ${langRule}
+
+For EVERY step include:
+- category: the product group, e.g. Base, Bronzer, Blush, Eyes, Brows, Lips
+- product: the exact product WITH texture or finish, e.g. "thin dewy medium-coverage foundation", "pigmented cream blush"
+- placement: exactly where on the face it goes for a ${f.face} face, with the reason, e.g. "high on the cheekbones, angled up to lift a round face"
+- shade: the exact shade PLUS undertone for ${f.tone} skin, e.g. "soft peach with warm undertone"
+- technique: the exact tool and motion, e.g. "damp beauty sponge, stipple from center outward" or "fluffy brush, buff in small circles"
+- why: one pro sentence on how this step creates the ${styleReq} effect
+- searchQuery: a short shoppable phrase for the product, e.g. "drugstore warm-toned foundation"
+
+Return valid JSON ONLY with exactly ${mode.steps} steps: {"summary":"..","steps":[{"category":"..","product":"..","placement":"..","shade":"..","technique":"..","why":"..","searchQuery":".."}],"searchKeyword":"e.g. soft glam makeup bundle"}`;
+
+  $('prompt').value = prompt;
+  $('prompt-info').textContent = `${prompt.length} Zeichen · erwartet ${mode.steps} Schritte · `
+    + `${langRule.startsWith('Write EVERY value in the JSON in GERMAN') ? 'deutsch' : val('f-lang')}`;
+  return prompt;
+}
+
+async function checkGpu() {
+  const rows = [];
+  const push = (k, v, badge) => rows.push(
+    `<tr><td class="k">${k}</td><td>${v}${badge ? ' ' + badge : ''}</td></tr>`);
+
+  const secure = window.isSecureContext;
+  push('Sicherer Kontext (HTTPS/localhost)', secure ? 'ja' : 'nein',
+    secure ? '<span class="badge ok">ok</span>' : '<span class="badge bad">blockiert WebGPU</span>');
+
+  const hasApi = !!navigator.gpu;
+  push('navigator.gpu vorhanden', hasApi ? 'ja' : 'nein',
+    hasApi ? '<span class="badge ok">ok</span>' : '<span class="badge bad">fehlt</span>');
+
+  if (!hasApi || !secure) {
+    $('gpu-badge').className = 'badge bad';
+    $('gpu-badge').textContent = 'kein WebGPU';
+    rows.push('<tr><td class="k">Folge</td><td>Modell laden ist deaktiviert — '
+      + 'entweder HTTPS nutzen oder ein Gerät ohne WebGPU testen.</td></tr>');
+    $('env-body').innerHTML = `<table>${rows.join('')}</table>`;
+    return null;
+  }
+
+  let adapter = null;
+  try {
+    adapter = await navigator.gpu.requestAdapter();
+  } catch (e) {
+    push('requestAdapter()', 'Fehler: ' + e.message, '<span class="badge bad">fehlgeschlagen</span>');
+  }
+
+  if (!adapter) {
+    push('GPU-Adapter', 'kein Adapter zurückgegeben',
+      '<span class="badge bad">kein WebGPU</span>');
+    $('gpu-badge').className = 'badge bad';
+    $('gpu-badge').textContent = 'kein WebGPU';
+    $('env-body').innerHTML = `<table>${rows.join('')}</table>`;
+    return null;
+  }
+
+  $('gpu-badge').className = 'badge ok';
+  $('gpu-badge').textContent = 'WebGPU verfügbar';
+  push('GPU-Adapter', 'angenommen', '<span class="badge ok">ok</span>');
+
+  let info = null;
+  try { info = adapter.info || (adapter.requestAdapterInfo ? await adapter.requestAdapterInfo() : null); }
+  catch (e) { info = null; }
+  if (info) {
+    push('GPU', [info.vendor, info.architecture, info.device, info.description]
+      .filter(Boolean).join(' · ') || 'unbekannt');
+  }
+
+  const lim = adapter.limits;
+  push('maxBufferBindingSize', (lim.maxBufferBindingSize / 1048576).toFixed(0) + ' MiB');
+  push('maxStorageBufferBindingSize', (lim.maxStorageBufferBindingSize / 1073741824).toFixed(1) + ' GiB');
+  push('maxComputeWorkgroupStorageSize', (lim.maxComputeWorkgroupStorageSize / 1024).toFixed(0) + ' KiB');
+  push('Features', [...(adapter.features || [])].join(', ') || '—');
+
+  push('Speicher (deviceMemory)', (navigator.deviceMemory || '?') + ' GB',
+    (navigator.deviceMemory || 8) >= 6 ? '<span class="badge ok">ok</span>'
+      : '<span class="badge warn">knapp für 3B-Modelle</span>');
+  push('CPU-Kerne', navigator.hardwareConcurrency || '?');
+  push('Bildschirm', `${screen.width}×${screen.height} @${devicePixelRatio}x`);
+  push('Sprache / Plattform', `${navigator.language} · ${navigator.platform || '—'}`);
+  push('User-Agent', `<span class="mono" style="word-break:break-all">${navigator.userAgent}</span>`);
+
+  $('env-body').innerHTML = `<table>${rows.join('')}</table>`;
+  return adapter;
+}
+
+async function importWebllm() {
+  if (webllm) return webllm;
+  const t0 = performance.now();
+  $('load-log').textContent = 'Lade WebLLM-Bibliothek …';
+  webllm = await import('https://esm.run/@mlc-ai/web-llm');
+  $('load-log').textContent =
+    `Bibliothek geladen in ${Math.round(performance.now() - t0)} ms (Version ${(webllm.version) || 'unbekannt'}).`;
+  return webllm;
+}
+
+const MODEL_PREFS = [
+  'Gemma-3-1B', 'Llama-3.2-1B-Instruct', 'Qwen2.5-1.5B-Instruct',
+  'SmolLM2-1.7B-Instruct', 'Phi-3.5-mini-instruct', 'Llama-3.2-3B-Instruct'
+];
+
+async function refreshModels() {
+  try {
+    const w = await importWebllm();
+    const list = (w.prebuiltAppConfig && w.prebuiltAppConfig.model_list) || [];
+    if (!list.length) throw new Error('leere Modellliste');
+    const seen = new Set();
+    const items = list.filter(m => {
+      if (!m.model_id || seen.has(m.model_id)) return false;
+      seen.add(m.model_id);
+      return true;
+    });
+    items.sort((a, b) => (a.vram_required_MB || 0) - (b.vram_required_MB || 0));
+    $('model-select').innerHTML = items.map(m => {
+      const size = m.vram_required_MB ? ` · ${Math.round(m.vram_required_MB / 1024 * 10) / 10} GB` : '';
+      return `<option value="${m.model_id}">${m.model_id}${size}</option>`;
+    }).join('');
+
+    for (const pref of MODEL_PREFS) {
+      const hit = items.find(m => m.model_id.includes(pref));
+      if (hit) { $('model-select').value = hit.model_id; break; }
+    }
+    $('load-log').textContent = `${items.length} Modelle in der Prebuilt-Liste. `
+      + `Empfohlen zum Start: 0,7–1,2 GB (1B–1,7B).`;
+    $('btn-load').disabled = false;
+  } catch (e) {
+    $('load-err').textContent = 'Modellliste konnte nicht geladen werden: ' + e.message
+      + '\nPrüfe die Netzverbindung; die Liste kommt von jsDelivr.';
+  }
+}
+
+let progressTimer = null;
+
+async function loadModel() {
+  const id = $('model-select').value;
+  if (!id) return;
+  $('load-err').textContent = '';
+  $('btn-load').disabled = true;
+  $('btn-refresh').disabled = true;
+  $('btn-run').disabled = true;
+  const t0 = performance.now();
+  let lastProgress = performance.now();
+  let stalled = false;
+
+  const bar = $('load-bar');
+  bar.style.width = '0%';
+
+  if (progressTimer) clearInterval(progressTimer);
+  progressTimer = setInterval(() => {
+    const gap = performance.now() - lastProgress;
+    if (gap > 45000 && !stalled) {
+      stalled = true;
+      $('load-log').innerHTML = '<span class="badge bad">hängt</span> Seit 45 s kein Fortschritt. '
+        + 'Typisch für das bekannte iOS-Problem beim Laden von Hugging-Face-Gewichten '
+        + '(Xet-Redirect) — Gewichte dann selbst ausliefern.';
+    }
+  }, 5000);
+
+  try {
+    const w = await importWebllm();
+    const rec = (w.prebuiltAppConfig.model_list || []).find(m => m.model_id === id);
+    if (rec && rec.vram_required_MB && navigator.deviceMemory) {
+      const ramGb = navigator.deviceMemory;
+      if (rec.vram_required_MB / 1024 > ramGb * 0.7) {
+        $('model-info').innerHTML =
+          `<span class="badge warn">Risiko</span> Modell braucht ~`
+          + `${Math.round(rec.vram_required_MB / 1024 * 10) / 10} GB, `
+          + `deklariertes Gerätespeicher-Limit ${ramGb} GB — Absturz oder Verzögerung möglich.`;
+      }
+    }
+
+    engine = await w.CreateMLCEngine(id, {
+      initProgressCallback: (p) => {
+        lastProgress = performance.now();
+        stalled = false;
+        const text = p.text || '';
+        const m = text.match(/(\d+(?:\.\d+)?)\s*%/);
+        if (m) bar.style.width = Math.min(100, parseFloat(m[1])) + '%';
+        if (p.progress !== undefined && p.progress !== null) {
+          bar.style.width = Math.round(p.progress * 100) + '%';
+        }
+        $('load-log').textContent = `${text} (${((performance.now() - t0) / 1000).toFixed(1)} s)`;
+      }
+    });
+
+    clearInterval(progressTimer);
+    bar.style.width = '100%';
+    loadedModel = id;
+    const secs = (performance.now() - t0) / 1000;
+    loadSeconds = Math.round(secs * 10) / 10;
+    $('load-log').textContent = `Modell bereit: ${id} — Ladezeit ${loadSeconds} s.`;
+    $('btn-run').disabled = false;
+    $('btn-batch').disabled = false;
+    $('btn-stop').disabled = false;
+  } catch (e) {
+    clearInterval(progressTimer);
+    $('load-err').textContent = 'Laden fehlgeschlagen: ' + (e && e.message ? e.message : e)
+      + '\nWenn das Abbruch-/Timeout-Fehler sind: Gewichte liegen auf Hugging Face und werden '
+      + 'auf manchen iOS-Versionen nie fertig geladen — selbst ausliefern löst das.';
+  } finally {
+    $('btn-load').disabled = false;
+    $('btn-refresh').disabled = false;
+  }
+}
+
+function parseJson(text) {
+  if (!text) return { data: null, error: 'leere Ausgabe' };
+  let t = String(text).replace(/```(?:json)?/gi, '').trim();
+  const s = t.indexOf('{');
+  const e = t.lastIndexOf('}');
+  if (s < 0 || e < 0 || e <= s) return { data: null, error: 'kein JSON-Objekt gefunden' };
+  let chunk = t.slice(s, e + 1);
+  try { return { data: JSON.parse(chunk), error: null }; } catch (err) { /* Weiter unten reparieren */ }
+  const repaired = chunk.replace(/,(\s*[}\]])/g, '$1');
+  try { return { data: JSON.parse(repaired), error: 'nur nach Entfernen von Kommas lesbar' }; }
+  catch (err) { return { data: null, error: 'JSON ungültig: ' + err.message }; }
+}
+
+function collectValues(obj, out = []) {
+  if (typeof obj === 'string') out.push(obj);
+  else if (Array.isArray(obj)) obj.forEach(v => collectValues(v, out));
+  else if (obj && typeof obj === 'object') Object.values(obj).forEach(v => collectValues(v, out));
+  return out;
+}
+
+function detectLang(text) {
+  const de = [' und ', ' der ', ' die ', ' das ', ' mit ', ' für ', ' auf ', ' einen ',
+    ' eine ', ' deine ', ' nicht ', 'gesicht', 'wange', 'augen', 'lippen', 'brau',
+    'schritt', 'trage', 'setze', 'nimm', 'dann ', 'auftrag'];
+  const en = [' and ', ' the ', ' with ', ' for ', ' on ', ' your ', 'face', 'cheek',
+    'eye', 'lip', 'brow', 'step', 'apply', 'then ', 'blend', 'use '];
+  const hay = ' ' + text.toLowerCase() + ' ';
+  const cnt = (arr) => arr.reduce((n, w) => n + (hay.split(w).length - 1), 0);
+  const d = cnt(de), e = cnt(en);
+  if (d === 0 && e === 0) return { lang: '?', d, e };
+  return { lang: d > e ? 'de' : 'en', d, e };
+}
+
+function evaluate(raw, expectedSteps, wantedLang) {
+  const checks = [];
+  const add = (label, ok, info) => checks.push({ label, ok, info });
+  const { data, error } = parseJson(raw);
+
+  add('JSON parsebar', !!data, data ? 'gültig' : (error || 'unbekannt'));
+
+  if (!data) return { checks, data: null, stats: { json: false, steps: 0, dup: 0, missing: 0 } };
+
+  const steps = Array.isArray(data.steps) ? data.steps : [];
+  add(`Genau ${expectedSteps} Schritte`, steps.length === expectedSteps,
+    `erhalten: ${steps.length}`);
+
+  const norm = s => String(s || '').toLowerCase().replace(/\s+/g, ' ').trim();
+  const seen = new Set();
+  let dup = 0;
+  for (const s of steps) {
+    const key = norm(s.product) + '|' + norm(s.placement);
+    if (seen.has(key)) dup++;
+    seen.add(key);
+  }
+  add('Keine identischen Schritte (Produkt + Platzierung)', dup === 0, `Dubletten: ${dup}`);
+
+  let missing = 0;
+  for (const s of steps) {
+    for (const f of REQUIRED_FIELDS) if (!s[f]) missing++;
+  }
+  add('Alle Pflichtfelder gefüllt', missing === 0, `fehlend: ${missing}`);
+
+  add('summary vorhanden', !!data.summary, data.summary ? 'ja' : 'fehlt');
+  add('searchKeyword vorhanden', !!data.searchKeyword, data.searchKeyword ? 'ja' : 'fehlt');
+
+  const values = collectValues(data).join(' ');
+  const det = detectLang(values);
+  add('Sprache wie gewünscht', det.lang === wantedLang,
+    `erkannt: ${det.lang} (de-Score ${det.d}, en-Score ${det.e})`);
+
+  const hasNumber = /\d/.test(values);
+  add('Enthält konkrete Zahlen', hasNumber, hasNumber ? 'ja' : 'keine Zahl im Text');
+
+  return {
+    checks, data,
+    stats: { json: true, steps: steps.length, dup, missing, lang: det.lang, numbers: hasNumber }
+  };
+}
+
+function renderChecks(elId, result) {
+  const el = $(elId);
+  if (!result || !result.checks.length) {
+    el.innerHTML = '<li><span class="lbl">kein Ergebnis</span></li>';
+    return;
+  }
+  el.innerHTML = result.checks.map(c =>
+    `<li><span class="lbl">${c.label}<br><span class="hint">${c.info || ''}</span></span>`
+    + `<span class="badge ${c.ok ? 'ok' : 'bad'}">${c.ok ? 'PASS' : 'FAIL'}</span></li>`).join('');
+}
+
+function chunkJsonSchema() {
+  return {
+    name: 'tutorial',
+    strict: false,
+    schema: {
+      type: 'object',
+      properties: {
+        summary: { type: 'string' },
+        steps: {
+          type: 'array',
+          items: {
+            type: 'object',
+            properties: {
+              category: { type: 'string' }, product: { type: 'string' },
+              placement: { type: 'string' }, shade: { type: 'string' },
+              technique: { type: 'string' }, why: { type: 'string' },
+              searchQuery: { type: 'string' }
+            },
+            required: ['category', 'product', 'placement', 'shade', 'technique', 'why', 'searchQuery']
+          }
+        },
+        searchKeyword: { type: 'string' }
+      },
+      required: ['summary', 'steps', 'searchKeyword']
+    }
+  };
+}
+
+async function runOnce(showStream) {
+  const prompt = $('prompt').value;
+  const t0 = performance.now();
+  let first = null;
+  let text = '';
+  let usage = null;
+  const structured = $('opt-structured').checked;
+
+  const base = {
+    messages: [{ role: 'user', content: prompt }],
+    temperature: 0.7,
+    max_tokens: 2048,
+    stream: true
+  };
+
+  let stream;
+  try {
+    stream = await engine.chat.completions.create(
+      structured
+        ? { ...base, response_format: { type: 'json_schema', json_schema: chunkJsonSchema() } }
+        : base
+    );
+  } catch (e) {
+    if (!structured) throw e;
+    $('run-status').innerHTML = '<span class="badge warn">Hinweis</span> '
+      + 'strukturierte Ausgabe nicht unterstützt — ohne response_format erneut.';
+    stream = await engine.chat.completions.create(base);
+  }
+
+  for await (const part of stream) {
+    const d = part.choices && part.choices[0] && part.choices[0].delta;
+    const piece = d && d.content ? d.content : '';
+    if (piece) {
+      if (first === null) first = performance.now();
+      text += piece;
+      if (showStream) $('out').textContent = text;
+    }
+    if (part.usage) usage = part.usage;
+  }
+
+  const t1 = performance.now();
+  const chars = text.length;
+  let tokens = usage && usage.completion_tokens ? usage.completion_tokens : Math.ceil(chars / 4);
+  const dur = (t1 - t0) / 1000;
+  return {
+    text, chars, tokens, ms: Math.round(t1 - t0),
+    ttft: first ? Math.round(first - t0) : null,
+    tokPerSec: dur > 0 ? Math.round(tokens / dur * 10) / 10 : 0,
+    structuredUsed: structured
+  };
+}
+
+function renderMetrics(r, loadSecs) {
+  const rows = [
+    ['Modell', loadedModel || '—'],
+    ['Ladezeit', loadSecs ? loadSecs + ' s' : '—'],
+    ['Antwortzeit', r.ms + ' ms'],
+    ['Zeit bis 1. Token', r.ttft !== null ? r.ttft + ' ms' : '—'],
+    ['Ausgabe', `${r.chars} Zeichen · ~${r.tokens} Token`],
+    ['Durchsatz', r.tokPerSec + ' tok/s'],
+    ['strukturierte Ausgabe', r.structuredUsed ? 'ja' : 'nein']
+  ];
+  $('metrics').querySelector('tbody').innerHTML =
+    rows.map(([k, v]) => `<tr><td class="k">${k}</td><td>${v}</td></tr>`).join('');
+}
+
+async function doRun() {
+  if (!engine) return;
+  $('run-err').textContent = '';
+  $('btn-run').disabled = true;
+  $('run-status').textContent = 'läuft …';
+  $('out').textContent = '';
+  $('run-bar').style.width = '15%';
+  const loadSecs = loadSeconds;
+  try {
+    const r = await runOnce(true);
+    $('run-bar').style.width = '100%';
+    const expected = AI_MODES[val('f-mode')].steps;
+    const result = evaluate(r.text, expected, val('f-lang'));
+    lastData = result;
+    renderChecks('checks-local', result);
+    renderMetrics(r, loadSecs);
+    addHistory(r, result, expected);
+    $('run-status').textContent = result.stats.json
+      ? `fertig · ${result.stats.steps} Schritte`
+      : 'fertig · JSON ungültig';
+    updateReport(r, result, expected);
+  } catch (e) {
+    $('run-bar').style.width = '0%';
+    $('run-err').textContent = 'Ausführung fehlgeschlagen: '
+      + (e && e.message ? e.message : e);
+    $('run-status').textContent = 'Fehler';
+  } finally {
+    $('btn-run').disabled = false;
+  }
+}
+
+let loadSeconds = null;
+
+function addHistory(r, result, expected) {
+  runCount++;
+  const s = result.stats;
+  history.push({
+    n: runCount, model: loadedModel, ms: r.ms, tok: r.tokPerSec, ttft: r.ttft,
+    json: s.json, steps: s.steps, expected, dup: s.dup, missing: s.missing,
+    lang: s.lang, at: new Date().toLocaleTimeString()
+  });
+  const tr = document.createElement('tr');
+  tr.innerHTML = `<td>${runCount}</td>`
+    + `<td>${s.json ? '<span class="badge ok">ok</span>' : '<span class="badge bad">FAIL</span>'}</td>`
+    + `<td>${s.steps}/${expected}</td>`
+    + `<td>${s.dup}</td><td>${s.missing}</td><td>${s.lang || '—'}</td>`
+    + `<td>${r.ms}</td><td>${r.tok}</td><td>${history[history.length - 1].at}</td>`;
+  $('hist').prepend(tr);
+}
+
+async function doBatch() {
+  const n = Math.max(1, Math.min(30, parseInt(val('batch-n')) || 5));
+  $('btn-batch').disabled = true;
+  for (let i = 0; i < n; i++) {
+    $('batch-status').textContent = `Lauf ${i + 1} von ${n} …`;
+    try {
+      const r = await runOnce(false);
+      $('out').textContent = r.text;
+      const expected = AI_MODES[val('f-mode')].steps;
+      const result = evaluate(r.text, expected, val('f-lang'));
+      lastData = result;
+      renderChecks('checks-local', result);
+      renderMetrics(r, loadSeconds);
+      addHistory(r, result, expected);
+      updateReport(r, result, expected);
+    } catch (e) {
+      $('batch-status').textContent = `Abbruch bei Lauf ${i + 1}: ${e.message}`;
+      break;
+    }
+  }
+  $('batch-status').textContent =
+    `${history.length} Läufe insgesamt · ${history.filter(h => h.json).length} mit gültigem JSON`;
+  $('btn-batch').disabled = false;
+}
+
+function markdownExport() {
+  const head = `| # | JSON | Schritte | Dupl. | Felder | Sprache | ms | tok/s |\n`
+    + `|---|---|---|---|---|---|---|---|\n`;
+  const rows = history.map(h =>
+    `| ${h.n} | ${h.json ? 'ok' : 'FAIL'} | ${h.steps}/${h.expected} | ${h.dup} `
+    + `| ${h.missing} | ${h.lang || '—'} | ${h.ms} | ${h.tok} |`).join('\n');
+  const ok = history.filter(h => h.json && h.steps === h.expected && h.dup === 0).length;
+  const avg = history.length
+    ? Math.round(history.reduce((a, h) => a + h.ms, 0) / history.length) : 0;
+  const avgTok = history.length
+    ? Math.round(history.reduce((a, h) => a + h.tok, 0) / history.length * 10) / 10 : 0;
+  return `**Modell:** ${loadedModel}  \n**Umfang:** ${val('f-mode')} · `
+    + `Sprache ${val('f-lang')} · Gesicht ${val('f-face')}  \n`
+    + `**Läufe:** ${history.length} · bestanden ${ok} · `
+    + `Ø ${avg} ms · Ø ${avgTok} tok/s\n\n${head}${rows}`;
+}
+
+function updateReport(r, result, expected) {
+  const ok = result.stats.json && result.stats.steps === expected && result.stats.dup === 0;
+  $('report').textContent = [
+    `Modell          ${loadedModel}`,
+    `Gerät           ${navigator.userAgent}`,
+    `WebGPU          ${$('gpu-badge').textContent}`,
+    `Speicher        ${navigator.deviceMemory || '?'} GB · ${navigator.hardwareConcurrency || '?'} Kerne`,
+    `Ladezeit        ${loadSeconds !== null ? loadSeconds + ' s' : '—'}`,
+    `Umfang/Sprache  ${val('f-mode')} / ${val('f-lang')}`,
+    `Antwort         ${r.ms} ms · TTFT ${r.ttft !== null ? r.ttft + ' ms' : '—'} · ${r.tokPerSec} tok/s`,
+    `Schritte        ${result.stats.steps} von ${expected}`,
+    `Dubletten       ${result.stats.dup} · fehlende Felder ${result.stats.missing}`,
+    `Sprache         ${result.stats.lang || '—'}`,
+    `Urteil          ${ok ? 'BESTANDEN' : 'NICHT BESTANDEN'}`,
+    '',
+    'Ausgabe:',
+    $('out').textContent
+  ].join('\n');
+}
+
+async function doGemini() {
+  const raw = $('gemini-in').value;
+  const n = parseInt(val('gemini-n')) || 6;
+  const res = evaluate(raw, n, val('f-lang'));
+  renderChecks('checks-gemini', res);
+}
+
+async function copyText(text, btn, label) {
+  try {
+    await navigator.clipboard.writeText(text);
+    btn.textContent = 'kopiert';
+    setTimeout(() => { btn.textContent = label; }, 1500);
+  } catch (e) {
+    btn.textContent = 'Kopieren blockiert';
+    setTimeout(() => { btn.textContent = label; }, 2000);
+  }
+}
+
+function wire() {
+  fillFeatures();
+  buildPrompt();
+
+  for (const id in FEATURES) $(id).addEventListener('change', buildPrompt);
+  ['f-style', 'f-extra', 'f-budget', 'f-mode', 'f-lang', 'g-on'].forEach(id =>
+    $(id).addEventListener('change', buildPrompt));
+  ['g-ratio', 'g-phi', 'g-jaw', 'g-wf', 'g-wj', 'g-chin', 'g-zone', 'g-five', 'g-gap']
+    .forEach(id => $(id).addEventListener('input', buildPrompt));
+
+  $('btn-rebuild').addEventListener('click', buildPrompt);
+  $('btn-refresh').addEventListener('click', refreshModels);
+  $('btn-load').addEventListener('click', async () => {
+    $('load-log').textContent = 'Modell wird geladen (erster Lauf braucht ggf. mehrere Minuten) …';
+    await loadModel();
+  });
+  $('btn-run').addEventListener('click', doRun);
+  $('btn-batch').addEventListener('click', doBatch);
+  $('btn-stop').addEventListener('click', () => {
+    try { if (engine) engine.interruptGenerate(); } catch (e) { /* egal */ }
+    $('run-status').textContent = 'abgebrochen';
+  });
+  $('btn-gemini').addEventListener('click', doGemini);
+  $('btn-copy').addEventListener('click', (e) =>
+    copyText(markdownExport(), e.currentTarget, 'Ergebnis als Markdown kopieren'));
+  $('btn-report').addEventListener('click', () => {
+    if (lastData) updateReport({ ms: '—', ttft: null, tokPerSec: 0 }, lastData,
+      AI_MODES[val('f-mode')].steps);
+  });
+  $('btn-copy-report').addEventListener('click', (e) =>
+    copyText($('report').textContent, e.currentTarget, 'Protokoll kopieren'));
+  $('btn-clear').addEventListener('click', () => {
+    history = []; runCount = 0;
+    $('hist').innerHTML = '';
+    $('batch-status').textContent = '';
+  });
+
+  checkGpu().then(adapter => {
+    if (adapter) refreshModels();
+    else {
+      $('model-select').innerHTML = '<option>WebGPU nicht verfügbar</option>';
+      $('btn-load').disabled = true;
+      $('load-log').textContent = 'Ohne WebGPU kann kein Modell geladen werden.';
+    }
+  });
+}
+
+wire();
+</script>
+</body>
+</html>

@@ -1,0 +1,81 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+    <title>Privacy · Aestra</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/base.css') }}">
+    <script src="{{ url_for('static', filename='js/i18n.js') }}"></script>
+    <style>
+        .privacy-section {
+            background: var(--card, #12121a);
+            border: 1px solid var(--border, #2a2a33);
+            border-radius: 16px;
+            padding: 18px 20px;
+            margin-top: 18px;
+        }
+        .privacy-section h2 { margin: 0 0 8px; font-size: 17px; }
+        .privacy-section p { margin: 0; color: var(--text-muted); line-height: 1.6; font-size: 14px; }
+        .privacy-back {
+            display: inline-block; margin-top: 26px; color: var(--primary);
+            font-weight: 700; text-decoration: none;
+        }
+    </style>
+    <!-- PWA -->
+    <link rel="manifest" href="/manifest.json">
+    <meta name="theme-color" content="#000000">
+    <link rel="icon" type="image/png" sizes="32x32" href="{{ url_for('static', filename='favicon.png') }}">
+    <link rel="icon" type="image/svg+xml" href="{{ url_for('static', filename='icons/logo.svg') }}">
+</head>
+<body data-page="privacy">
+
+    <header class="topbar">
+        <a href="/" class="topbar-brand" style="text-decoration:none;">Aestra</a>
+        <nav class="desktop-nav">
+            <a href="/" data-page="home" data-i18n="nav.home">Home</a>
+            <a href="/wardrobe" data-page="wardrobe" data-i18n="nav.style">Style Lab</a>
+            <a href="/beauty" data-page="beauty" data-i18n="nav.beauty">Beauty Lab</a>
+            <a href="/settings" data-page="settings" data-i18n="nav.settings">Settings</a>
+        </nav>
+    </header>
+
+    <main class="page">
+        <h1 data-i18n="p.title">Privacy &amp; your data</h1>
+        <p class="sub" data-i18n="p.intro">Aestra helps you choose outfits and beauty routines. Here is honestly where your data goes — nothing hidden.</p>
+
+        <div class="privacy-section">
+            <h2 data-i18n="p.onDeviceTitle">Stays on your device</h2>
+            <p data-i18n="p.onDevice">Face and landmark analysis runs in your browser (MediaPipe). Your camera frames are not uploaded for this. Your app settings and language stay local too.</p>
+        </div>
+
+        <div class="privacy-section">
+            <h2 data-i18n="p.sentTitle">Sent to our server and third parties</h2>
+            <p data-i18n="p.sent">When you generate outfit or beauty suggestions, your text and — if you analyse a photo — that photo are sent to our server and forwarded to an AI provider (Google Gemini) for processing. Weather uses your approximate location via Open-Meteo. Shopping suggestions send your search term to a search service (Serper).</p>
+        </div>
+
+        <div class="privacy-section">
+            <h2 data-i18n="p.storedTitle">Stored on our server</h2>
+            <p data-i18n="p.stored">Your account, wardrobe items (including uploaded photos), body profile and capsule are stored on our hosting provider, so they are available on any device you sign in from.</p>
+        </div>
+
+        <div class="privacy-section">
+            <h2 data-i18n="p.rightsTitle">Your control</h2>
+            <p data-i18n="p.rights">You can change your email and password, and delete your account and all of its data at any time (Settings → Delete account).</p>
+        </div>
+
+        <div class="privacy-section">
+            <h2 data-i18n="p.goalTitle">Goal: a more private architecture</h2>
+            <p data-i18n="p.goal">This prototype already runs face analysis locally. A future version would also run the AI models locally, so that photos and text never leave your device.</p>
+        </div>
+
+        <a class="privacy-back" href="/" data-i18n="p.back">Back to the app</a>
+    </main>
+
+    <script>
+        if (window.I18N) {
+            I18N.apply();
+            if (window.markNavActive) markNavActive('privacy');
+        }
+    </script>
+</body>
+</html>

@@ -28,7 +28,7 @@
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-    <meta name="apple-mobile-web-app-title" content="My Style">
+    <meta name="apple-mobile-web-app-title" content="Aestra">
 </head>
 <body data-page="settings">
 
@@ -111,6 +111,26 @@
             <button class="btn btn-ghost" onclick="logOut(event)" style="color:var(--danger);" data-i18n="settings.logout">Log out of device</button>
         </div>
 
+        <!-- Datenschutz: ehrliche Auflistung der Datenfluesse -->
+        <div class="section">
+            <h2 data-i18n="settings.privacy">Privacy &amp; data</h2>
+            <p class="sub" data-i18n="settings.privacySub">See exactly what stays on your device and what is sent to our server.</p>
+            <p style="margin-top:12px;">
+                <a href="/privacy" style="color:var(--primary); font-weight:700; text-decoration:none;" data-i18n="settings.privacyLink">Open the privacy page &rarr;</a>
+            </p>
+        </div>
+
+        <!-- Konto endgueltig loeschen (DSGVO: Nutzer muss seine Daten entfernen koennen) -->
+        <div class="section" style="border:1px solid var(--danger); border-radius:16px; padding:18px 20px;">
+            <h2 style="color:var(--danger);" data-i18n="settings.danger">Delete account</h2>
+            <p class="sub" data-i18n="settings.dangerSub">Permanently removes your account, wardrobe, body profile and capsule. This cannot be undone.</p>
+            <form id="formDelete">
+                <label data-i18n="settings.confirmPass">Confirm with your password</label>
+                <input type="password" id="setDelPass" autocomplete="current-password" placeholder="&bull;&bull;&bull;&bull;&bull;&bull;&bull;&bull;">
+                <button class="btn" style="margin-top:22px; background:var(--danger); border-color:var(--danger);" id="btnDelete" data-i18n="settings.deleteBtn">Delete my account</button>
+            </form>
+        </div>
+
         <div class="errbox" id="errBox"></div>
     </main>
 
@@ -179,6 +199,32 @@
                 sec_q: document.getElementById('setSecQ').value.trim(),
                 sec_a: document.getElementById('setSecA').value.trim()
             }, document.getElementById('btnSec'));
+        });
+
+        // Konto endgueltig löschen. Zwei Hürden: confirm()+Passwort, damit
+        // das niemand aus Versehen oder von einem fremden Gerät aus ausloest.
+        document.getElementById('formDelete').addEventListener('submit', async function (e) {
+            e.preventDefault();
+            if (!confirm('Delete your account and all data permanently? This cannot be undone.')) return;
+            const btn = document.getElementById('btnDelete');
+            const old = btn.textContent;
+            showErr('');
+            btn.disabled = true;
+            btn.textContent = 'Deleting…';
+            try {
+                const res = await fetch('/api/account/delete', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ password: document.getElementById('setDelPass').value })
+                });
+                const data = await res.json();
+                if (data.ok) { location.href = '/'; return; }
+                showErr(data.error || 'Could not delete the account.');
+            } catch (e) {
+                showErr('Could not reach the server. Try again.');
+            }
+            document.getElementById('btnDelete').disabled = false;
+            document.getElementById('btnDelete').textContent = old;
         });
 
         // Beim Öffnen schauen, wer angemeldet ist, und die Seite füllen.

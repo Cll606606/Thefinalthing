@@ -23,7 +23,7 @@
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-    <meta name="apple-mobile-web-app-title" content="My Style">
+    <meta name="apple-mobile-web-app-title" content="Aestra">
 </head>
 
 <body data-page="beauty">
@@ -71,7 +71,12 @@
 
         <div class="video-wrap">
             <video id="video" autoplay playsinline muted></video>
+            <!-- Hochgeladenes Foto statt eingefrorenem Kamerabild:
+                 nur so sitzen die Landmark-Punkte auf dem Bild. -->
+            <img id="photo-preview" alt="">
             <canvas id="face-canvas"></canvas>
+            <!-- Anzeige, ob gerade ueberhaupt ein Gesicht erkannt wird. -->
+            <div id="detect-badge">SEARCHING FOR A FACE…</div>
         </div>
 
         <p class="guide-hint" id="scan-hint" data-i18n="beauty.guideHint">🧭 Line up your face inside the oval, eyes on the horizontal guide.</p>
@@ -83,6 +88,18 @@
              text-align:left; color:#9ca3af; font-variant-numeric:tabular-nums;">
             <b style="color:#e5e7eb;" data-i18n="m.title">Live measurements</b>
             <div id="live-metrics-rows"></div>
+        </div>
+
+        <!-- Verlaufs-Diagramm: eine Zeile je Kennzahl mit eigener Skala,
+             eingezeichneten Einstufungsgrenzen und einer Markierung für den
+             Median — also für den Wert, nach dem tatsächlich eingestuft wird.
+             erscheint zusammen mit der Messkarte (gleicher Schalter). -->
+        <div id="trend-panel" style="display:none; margin-top:10px; padding:10px 12px; border-radius:12px;
+             background:rgba(0,0,0,0.45); border:1px solid #26262e; font-size:.72rem; line-height:1.7;
+             text-align:left; color:#9ca3af; font-variant-numeric:tabular-nums;">
+            <b style="color:#e5e7eb;" data-i18n="m.trend">Measurement trend</b>
+            <div style="font-size:.94em; opacity:.75; margin-bottom:6px;" data-i18n="m.trendHint">Solid line = median of the last 25 frames (this is what the label is based on). Faint dashed lines = classification thresholds.</div>
+            <canvas id="trend-canvas" style="display:block; width:100%;"></canvas>
         </div>
 
         <!-- Wird nur eingeblendet, wenn die Erkennung wirklich nicht klappt
@@ -101,6 +118,8 @@
         </div>
 
         <button class="chip-alt" style="margin-top:8px;" onclick="toggleGuide(this)"><span id="guide-label">🔲 Guide lines: ON</span></button>
+        <button class="chip-alt" style="margin-top:8px;" onclick="toggleLandmarks(this)"><span id="landmark-label">✨ Landmark dots: ON</span></button>
+        <button class="chip-alt" style="margin-top:8px;" onclick="toggleMap(this)"><span id="map-label">📱 Measurement map: OFF</span></button>
 
         <!-- Gesichtsprofil-Karte: gespeichertes Foto + gelöschtes Profil -->
         <div id="saved-face-card" style="display:none; margin-top:18px; background:rgba(0,0,0,0.45); border:1px solid #26262e; border-radius:16px; padding:14px 16px;">
@@ -197,6 +216,29 @@
                 placeholder="Custom $"
                 style="width:130px; background:#1a1a1a; border:1px solid #333; border-radius:15px; padding:12px; color:white; text-align:center;"
                 oninput="customBudget(this)">
+        </div>
+
+        <!-- AUSWAHL: Modell / Sprache / Umfang der KI-Antwort -->
+        <p class="hud-label" style="margin-top:24px;" data-i18n="b.aiModelLabel">AI MODEL</p>
+        <div class="chip-container" id="ai-model-chips">
+            <button class="chip-alt picked" data-pick="model" data-default="true" data-i18n="b.aiAuto">⚙ Auto</button>
+        </div>
+        <p class="hud-hint" data-i18n="b.aiModelHint">Auto tries the fastest model that answers first.</p>
+
+        <p class="hud-label" style="margin-top:18px;" data-i18n="b.aiLangLabel">ANSWER LANGUAGE</p>
+        <div class="chip-container">
+            <button class="chip-alt picked" data-pick="lang" onclick="setAiLang('auto', this)" data-default="true" data-i18n="b.aiLangAuto">🌐 Like the app</button>
+            <button class="chip-alt" data-pick="lang" onclick="setAiLang('de', this)">🇩🇪 Deutsch</button>
+            <button class="chip-alt" data-pick="lang" onclick="setAiLang('en', this)">🇬🇧 English</button>
+            <button class="chip-alt" data-pick="lang" onclick="setAiLang('es', this)">🇪🇸 Español</button>
+            <button class="chip-alt" data-pick="lang" onclick="setAiLang('fr', this)">🇫🇷 Français</button>
+        </div>
+
+        <p class="hud-label" style="margin-top:18px;" data-i18n="b.aiModeLabel">HOW MUCH DETAIL</p>
+        <div class="chip-container">
+            <button class="chip-alt" data-pick="mode" onclick="setAiMode('quick', this)" data-i18n="b.aiModeQuick">⚡ Quick (3 steps)</button>
+            <button class="chip-alt picked" data-pick="mode" onclick="setAiMode('standard', this)" data-default="true" data-i18n="b.aiModeStandard">Standard (6 steps)</button>
+            <button class="chip-alt" data-pick="mode" onclick="setAiMode('detailed', this)" data-i18n="b.aiModeDetailed">🎓 Detailed + beginner tips</button>
         </div>
 
         <button class="btn-main" style="margin-top:30px;" onclick="startAnalysis()">
@@ -426,10 +468,41 @@
             const g = document.getElementById('guide-label');
             if (g && window.T) g.textContent = '🔲 ' + T('beauty.guideOn');
         }
+
+        /* Übersetzter Anfangs-Text für den Messkarten-Toggle-Button.
+           Der Zustand (AN/AUS) muss aus window.showMap gelesen werden,
+           sonst springt der Button beim Sprachwechsel auf den falschen Wert. */
+        function initMapLabel() {
+            const m = document.getElementById('map-label');
+            if (m && window.T) {
+                m.textContent = '📱 ' + T(window.showMap ? 'beauty.mapOn' : 'beauty.mapOff');
+            }
+        }
+        function initLandmarkLabel() {
+            const l = document.getElementById('landmark-label');
+            if (l && window.T) {
+                l.textContent = '✨ ' + T(window.showLandmarks ? 'beauty.landmarksOn' : 'beauty.landmarksOff');
+            }
+        }
         document.addEventListener('DOMContentLoaded', function () {
             initGuideLabel();
+            initLandmarkLabel();
+            initMapLabel();
             showSavedFaceCard();
+            // Modellmenue aus der Server-Konfiguration fuellen (mit Auto).
+            if (window.loadAiModels) window.loadAiModels();
         });
+
+        /* Wird von i18n.apply() bei jedem Sprachwechsel aufgerufen, damit
+           beide Toggle-Schalter ihren Text mit der neuen Sprache aktualisieren. */
+        window.refreshToggleLabels = function () {
+            initGuideLabel();
+            initLandmarkLabel();
+            initMapLabel();
+            /* Status-Punkt im Bild:Text steht dort frei, nicht als
+               i18n-Schluessel — also nach dem Sprachwechsel neu setzen. */
+            if (window.refreshDetectBadge) window.refreshDetectBadge();
+        };
 
         function showNext(id) {
             document.querySelectorAll('.screen').forEach(s => s.classList.remove('active'));
