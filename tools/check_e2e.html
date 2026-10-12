@@ -1,0 +1,227 @@
+<!doctype html>
+<!-- ============================================================
+  E2E-Check fuer Aestra (Headless-Chrome, braucht Netz)
+
+  Aufruf:  tools/run_checks.sh   (Schritt 4)
+
+  Was hier passiert: die ECHTE MediaPipe-Bibliothek wird statisch
+  vom CDN geladen (KEIN document.write — das wuerde das WASM-Modell
+  zweimal laden und in "Module.arguments has been replaced" enden),
+  dann laeuft die Kette, die der Nutzer sieht:
+
+    CDN-FaceMesh -> echtes Gesichtsfoto -> handleResults
+    -> renderOverlay -> Status-Punkt + gezeichnete Punkte
+
+  Der Kamerastart ist bewusst NICHT Teil des Tests: ein Dauer-
+  Videostream laesst Chrome mit --dump-dom nie zur Ruhe. Die
+  Frame-Fehler-Logik (Warnung nach N Fehlern, Zuruecksetzen bei
+  Erfolg) prueft check_browser.html offline.
+
+  Gesichtsfoto: tools/face-fixture.png. Fehlt es, wird die
+  Foto-Pruefung sauber uebersprungen (die Rest-Pruefungen laufen).
+  ============================================================ -->
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<title>Aestra E2E-Check</title>
+</head>
+<body>
+
+<!-- Elemente, die camera.js beim Aufbau braucht -->
+<style>
+    /* Rahmen wie im echten Layout (3:4), damit die Cover-Rechnung greift. */
+    #face-canvas { position: absolute; top: 0; left: 0; width: 300px; height: 400px; }
+    #photo-preview { display: none; }
+    #detect-badge { padding: 4px 8px; }
+</style>
+<video id="video"></video>
+<img id="photo-preview" alt="">
+<canvas id="face-canvas" width="480" height="640"></canvas>
+<div id="detect-badge">init</div>
+<div id="live-metrics" style="display:none"></div>
+<div id="live-metrics-rows"></div>
+<div id="mediapipe-note" style="display:none"></div>
+<div id="mediapipe-note-detail"></div>
+<div id="trend-panel" style="display:none">
+    <b data-i18n="m.trend">Measurement trend</b>
+    <canvas id="trend-canvas"></canvas>
+</div>
+<button id="guide-btn"><span id="guide-label">Guide</span></button>
+<button id="map-btn"><span id="map-label">Map</span></button>
+<button id="landmark-btn"><span id="landmark-label">Landmarks</span></button>
+<div class="chip-container" id="ai-model-chips"></div>
+<div class="chip-container" id="mode-chips">
+    <button class="chip-alt" data-pick="mode" id="chip-quick">quick</button>
+    <button class="chip-alt picked" data-pick="mode" id="chip-standard">standard</button>
+</div>
+
+<!-- Formularfelder, die syncManualFeatures fuellen muss -->
+<input id="manual-face"><input id="manual-eyes"><input id="manual-eyeTilt">
+<input id="manual-lips"><input id="manual-brows"><input id="manual-cheekbones">
+<input id="manual-tone">
+
+<div id="ai-summary"></div>
+<pre id="out" style="white-space:pre-wrap;font:12px/1.5 ui-monospace,Menlo,monospace"></pre>
+
+
+<script>window.AESTRA_NO_AUTO_CAMERA = true;</script>
+<script src="../static/js/i18n.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh"></script>
+<script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils"></script>
+<script src="../static/js/camera.js"></script>
+<script src="../static/js/ai-logic.js"></script>
+
+<script>
+const LINES = [];
+const ERRORS = [];
+function pass(n, d) { LINES.push('PASS ' + n + (d ? ' | ' + d : '')); }
+function fail(n, d) { LINES.push('FAIL ' + n + ' | ' + (d || '')); }
+function check(n, fn) {
+    try {
+        const r = fn();
+        if (r === false) fail(n, 'Assertion ergab false');
+        else pass(n, r === undefined || r === true ? '' : String(r));
+    } catch (e) {
+        fail(n, (e && e.name ? e.name + ': ' : '') + (e && e.message ? e.message : e));
+    }
+}
+window.addEventListener('error', ev => {
+    ERRORS.push((ev.message || 'error') + ' @' + (ev.filename || '').split('/').pop() + ':' + (ev.lineno || '?'));
+});
+
+function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
+
+
+function inkTotal() {
+    const cv = document.getElementById('face-canvas');
+    const d = cv.getContext('2d').getImageData(0, 0, cv.width, cv.height).data;
+    let n = 0;
+    for (let i = 3; i < d.length; i += 4) if (d[i] > 20) n++;
+    return n;
+}
+
+function finalize() {
+    if (window.__done) return;
+    window.__done = true;
+    ERRORS.forEach(e => LINES.push('FAIL Laufzeitfehler | ' + e));
+    try { cancelAnimationFrame(guideRaf); } catch (e) { /* egal */ }
+    try { cancelAnimationFrame(trendRaf); } catch (e) { /* egal */ }
+    const text =
+        'TOTAL ' + LINES.filter(l => l.startsWith('PASS')).length + ' / ' + LINES.length + '\n' +
+        LINES.join('\n');
+    document.getElementById('out').textContent = text;
+
+    /* Ergebnis selbst an den Pruef-Server schicken: --dump-dom enthaelt
+       erst den DOM beim Laden, --virtual-time-budget haengt beim
+       Modell-Download. POST erreicht uns also immer. */
+    try {
+        fetch('/__e2e-result', { method: 'POST', body: text });
+    } catch (e) { console.log('E2E POST exception: ' + e.message); }
+}
+
+/* Obergrenze: auch wenn etwas haengt, muss Chrome zurueckkommen. */
+const t0 = Date.now();
+
+(function waitE2E() {
+    if (window.__e2eDone || Date.now() - t0 > 60000) finalize();
+    else setTimeout(waitE2E, 150);
+})();
+
+async function runE2E() {
+
+    if (typeof window.FaceMesh !== 'function' || typeof window.Camera !== 'function') {
+        pass('E2E: MediaPipe-Bibliothek vom CDN', 'uebersprungen (CDN nicht erreichbar)');
+        return;
+    }
+    pass('E2E: MediaPipe-Bibliothek vom CDN', 'FaceMesh + camera_utils da');
+
+    /* camera.js initialisiert MediaPipe beim Laden SELBST (am Dateiende).
+       Ein zweites new FaceMesh(...) wuerde das WASM-Modell doppelt
+       laden — also warten statt nachlegen. */
+    let ready = !!window.mediapipeReady;
+    for (let i = 0; i < 80 && !ready; i++) { await sleep(250); ready = !!window.mediapipeReady; }
+    if (!ready) throw new Error('FaceMesh nicht bereit: ' + (window.mediapipeError || 'unbekannt'));
+    pass('E2E: FaceMesh-Engine', 'initialisiert');
+
+    /* Der Kamerastart von camera.js liefert ein Dauer-Video; solange
+       Frames laufen, kommt Chrome mit --dump-dom nicht zur Ruhe. */
+    try { window.stopCamera(); } catch (e) { /* egal */ }
+
+    const img = new Image();
+    const loaded = await new Promise(res => {
+        img.onload = () => res(true);
+        img.onerror = () => res(false);
+        img.src = 'face-fixture.png';
+    });
+
+    if (!loaded) {
+        pass('E2E: Landmarks auf echtem Foto',
+            'uebersprungen (kein tools/face-fixture.png)');
+        return;
+    }
+
+    /* Das Modell (WASM + tflite) laedt beim ersten send() nach. Ein
+       einziger Versuch landet genau im Fehler aus dem Screenshot —
+       deshalb erneut schicken, bis die Landmarks da sind. */
+    let lm = null;
+    let lastErr = '';
+
+    /* Nacheinander senden, nie gleichzeitig: zwei parallele send()
+       stuerzen das WASM-Modul ab. Deshalb wird JEDER Versuch
+       ausdruecklich abgewartet, bevor der naechste startet. */
+    for (let i = 0; i < 40 && !lm; i++) {
+        try {
+            const send = (i === 0)
+                ? window.useUploadedPhoto(img)
+                : window.runFaceMeshOn(img);
+            /* Nie ewig warten: MediaPipe haengt beim Modell-Download,
+               wenn das Netz weg ist — 20 s und dann der naechste Versuch. */
+            await Promise.race([
+                send,
+                sleep(20000).then(() => { throw new Error('send timeout nach 20 s'); })
+            ]);
+        }
+        catch (e) { lastErr = (e && e.message) ? e.message : String(e); }
+        lm = window._lastLandmarks;
+        if (!lm) await sleep(250);
+    }
+
+    if (!lm || !lm.length) {
+        throw new Error('keine Landmarks vom echten Foto' +
+            (lastErr ? ' (letzter Fehler: ' + lastErr + ')' : ''));
+    }
+
+    window.showGuide = false;
+    window.showMap = false;
+    window.showLandmarks = true;
+    window.photoMode = true;
+    renderOverlay();
+
+    const badge = document.getElementById('detect-badge');
+    const label = badge ? badge.textContent.trim() : '';
+
+    if (label.indexOf(String(lm.length)) === -1) {
+        throw new Error('Status-Punkt zeigt nicht die Punktzahl: "' + label + '"');
+    }
+
+    const ink = inkTotal();
+    if (ink < 50) throw new Error('zu wenig Pixel gezeichnet: ' + ink);
+
+    const note = document.getElementById('mediapipe-note');
+    if (note && note.style.display === 'block') {
+        throw new Error('Warnung sichtbar: ' +
+            (note.textContent || '').trim().replace(/\s+/g, ' ').slice(0, 140));
+    }
+
+    pass('E2E: Landmarks auf echtem Foto',
+        lm.length + ' Punkte, Status "' + label + '", ' + ink + ' Pixel');
+
+}
+
+runE2E()
+    .catch(e => fail('E2E: echte MediaPipe-Pipeline', (e && e.message) || e))
+    .then(() => { window.__e2eDone = true; });
+
+</script>
+</body>
+</html>

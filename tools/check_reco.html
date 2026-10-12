@@ -1,0 +1,85 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>Aestra Reco-Check</title>
+</head>
+<body><pre id="out"></pre>
+<script src="../static/js/recommender.js"></script>
+<script>
+/* Reiner Clien-Test der Modelllogik (recommender.js), ohne Server. */
+(function () {
+    window.loggedIn = false; /* kein Server-Fetch im Test */
+    var out = [];
+    function line(s) { out.push(s); }
+    function assert(cond, name) { line((cond ? 'PASS ' : 'FAIL ') + name); }
+
+    var wardrobe = [
+        { name: 'Black Wool Coat', cat: 'Outerwear', desc: 'warm black wool winter coat', tags: 'Outerwear · black · wool · coat', id: 1 },
+        { name: 'Blue Jeans', cat: 'Bottoms', desc: 'classic blue denim jeans', tags: 'Bottoms · blue · denim · jeans', id: 2 },
+        { name: 'White T-Shirt', cat: 'Tops', desc: 'plain white cotton t-shirt', tags: 'Tops · white · cotton · shirt', id: 3 },
+        { name: 'Summer Dress', cat: 'Dresses', desc: 'light floral summer dress', tags: 'Dresses · flower · light · dress', id: 4 },
+        { name: 'Winter Boots', cat: 'Shoes', desc: 'leather boots for cold weather', tags: 'Shoes · brown · leather · boots', id: 5 },
+        { name: 'Red Swimsuit', cat: 'Swimwear', desc: 'red bikini', tags: 'Swimwear · red · bikini', id: 6 }
+    ];
+
+    var ctxCold = { occasion: 'Interview', tempC: 6, season: AestraReco.seasonOf(6) };
+    var ctxHot = { occasion: 'Beach Day', tempC: 30, season: AestraReco.seasonOf(30) };
+
+    assert(typeof AestraReco === 'object', 'AestraReco global vorhanden');
+    assert(AestraReco.VERSION === 1, 'Modellversion = 1');
+
+    /* Wetter-Filter: kein Badeanzug bei 6 °C, kein Mantel bei 30 °C. */
+    assert(AestraReco.weatherOK('Swimwear', ctxCold.tempC) === false, 'Swimwear bei 6°C gefiltert');
+    assert(AestraReco.weatherOK('Outerwear', ctxCold.tempC) === true, 'Outerwear bei 6°C erlaubt');
+    assert(AestraReco.weatherOK('Outerwear', ctxHot.tempC) === false, 'Outerwear bei 30°C gefiltert');
+
+    /* Kalt: der Look darf den Badeanzug NICHT enthalten. */
+    var coldLook = AestraReco.buildLook(wardrobe, ctxCold);
+    var coldNames = coldLook.chosen.map(function (i) { return i.name; });
+    assert(coldLook.chosen.length >= 1 && coldLook.chosen.length <= 4, 'Look-Größe 1..4 bei Kälte (war ' + coldLook.chosen.length + ')');
+    assert(coldNames.indexOf('Red Swimsuit') < 0, 'Kein Badeanzug im Kalt-Look');
+
+    /* Heiß: kein Mantel im Look, Grundteile vorn. */
+    var hotNames = AestraReco.buildLook(wardrobe, ctxHot).chosen.map(function (i) { return i.name; });
+    assert(hotNames.indexOf('Black Wool Coat') < 0, 'Kein Mantel im Heiß-Look');
+
+    /* Ranking: Score-Rangfolge existiert und Badeanzug liegt bei Kälte unten. */
+    var rankedCold = AestraReco.rank(wardrobe, ctxCold);
+    var idxSwim = rankedCold.map(function (r) { return r.item.name; }).indexOf('Red Swimsuit');
+    var idxCoat = rankedCold.map(function (r) { return r.item.name; }).indexOf('Black Wool Coat');
+    assert(idxCoat < idxSwim, 'Kalter Kontext: Mantel vor Badeanzug');
+    line('      Rank (kalt): ' + rankedCold.map(function (r) { return r.item.name; }).join(' > '));
+
+    /* Lernen: Daumen hoch erhöht den Score der gewählten Teile. */
+    function scoreOf(ranked, name) {
+        for (var i = 0; i < ranked.length; i++) if (ranked[i].item.name === name) return ranked[i].score;
+        return null;
+    }
+    var before = scoreOf(AestraReco.rank(wardrobe, ctxCold), 'Black Wool Coat');
+    AestraReco.applyFeedback(AestraReco.getModel(), coldLook.chosen, ctxCold, true);
+    var after = scoreOf(AestraReco.rank(wardrobe, ctxCold), 'Black Wool Coat');
+    assert(after > before, 'Score nach Like gestiegen (' + before + ' -> ' + after + ')');
+    var updates = AestraReco.getModel().meta.updates;
+    assert(updates === 1, 'update-Zähler = 1 (war ' + updates + ')');
+
+    /* Lernen: Daumen runter senkt den Score wieder. */
+    var before2 = scoreOf(AestraReco.rank(wardrobe, ctxCold), 'Black Wool Coat');
+    AestraReco.applyFeedback(AestraReco.getModel(), coldLook.chosen, ctxCold, false);
+    var after2 = scoreOf(AestraReco.rank(wardrobe, ctxCold), 'Black Wool Coat');
+    assert(after2 < before2, 'Score nach Dislike gesunken (' + before2 + ' -> ' + after2 + ')');
+
+    /* Lückenanalyse: Kalt verlangt Outerwear, warm nicht. */
+    var missingCold = AestraReco.missingBasics(wardrobe.slice(0, 6), ctxCold).map(function (m) { return m.cat; });
+    var missingHot = AestraReco.missingBasics(wardrobe.slice(0, 6), ctxHot).map(function (m) { return m.cat; });
+    assert(missingCold.indexOf('Outerwear') < 0, 'Kalt: Outerwear im Bestand -> keine Lücke');
+    var noCoat = wardrobe.filter(function (i) { return i.id !== 1; });
+    var gapCold = AestraReco.missingBasics(noCoat, ctxCold).map(function (m) { return m.cat; });
+    assert(gapCold.indexOf('Outerwear') >= 0, 'Kalt: ohne Mantel -> Outerwear-Lücke erkannt');
+    assert(missingHot.indexOf('Outerwear') < 0, 'Heiß: keine Outerwear-Lücke');
+
+    document.getElementById('out').textContent = out.join('\n');
+})();
+</script>
+</body>
+</html>

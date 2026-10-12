@@ -276,32 +276,86 @@ function drawLandmarkDots(c, lm, w, h) {
 let badgeState = null;
 let badgeFound = false;
 let badgeCount = 0;
+let badgeStalled = false;
 
-function setDetectBadge(found, count, force) {
+/* True, wenn die Erkennung laeuft (oder ein Foto-Scan gestartet ist), aber
+   seit MP_STALL_MS kein einziges send()-Ruecklauf kam. Genau dieser Fall
+   blieb bisher unsichtbar: guideLoop rendert ohne neue Landmarks und ohne
+   Videogroesse ueberhaupt nicht — der Badge blieb dann auf dem eingefrorenen
+   HTML-Text stehen ("SEARCHING FOR A FACE…"), die Punkte fehlten komplett
+   und die60-Frames-Warnung greift nicht, weil send() nie einen Fehler WIRFT
+   (sie haengt). (Woffener Punkt 6 in tools/TODO.md.) */
+function detectStalled() {
+
+    if (window.photoMode) {
+
+        const scan = window._photoScanAt || 0;
+        if (!scan) return false;
+        if ((window._resultsAt || 0) >= scan) return false;
+        return Date.now() - scan > MP_STALL_MS;
+
+    }
+
+    if (!isCameraRunning()) return false;
+
+    /* Start + Modell-Download (gnadenfrist) duerfen nicht als Stall zaehlen.
+       Danach gilt: ohne send()-Ruecklauf seit MP_STALL_MS ist der Loop tot. */
+    const start = mpStreamStart || 0;
+    if (start && Date.now() - start < MP_GRACE_MS) return false;
+
+    const base = window._resultsAt || (start + MP_GRACE_MS);
+    if (!base) return false;
+
+    return Date.now() - base > MP_STALL_MS;
+
+}
+
+function setDetectBadge(found, count, force, stalled) {
 
     badgeFound = !!found;
     badgeCount = count || 0;
+
+    const isStalled = !!stalled;
+
+    /* Beim Uebergang einmal melden — nicht bei jedem Frame. */
+    if (isStalled !== badgeStalled) {
+
+        badgeStalled = isStalled;
+        window._stalled = isStalled;
+
+        if (isStalled) {
+            console.error(
+                'Aestra: no face-detection results for ' +
+                Math.round(MP_STALL_MS / 1000) +
+                ' s — the detection loop is stuck. Reload the page.'
+            );
+        }
+
+    }
 
     const el = document.getElementById('detect-badge');
     if (!el) return;
 
     const t = (k, fb) => (window.T ? window.T(k) : fb);
-    const text = found
-        ? t('beauty.detectOn', 'FACE · {n} POINTS').replace('{n}', String(count))
-        : t('beauty.detectOff', 'SEARCHING FOR A FACE…');
+    const text = isStalled
+        ? t('beauty.detectStalled', 'NO RESULTS – RELOAD PAGE')
+        : (found
+            ? t('beauty.detectOn', 'FACE · {n} POINTS').replace('{n}', String(count))
+            : t('beauty.detectOff', 'SEARCHING FOR A FACE…'));
 
     if (!force && text === badgeState) return;
     badgeState = text;
 
     el.textContent = text;
-    el.classList.toggle('on', !!found);
+    el.classList.toggle('on', !!found && !isStalled);
+    el.classList.toggle('stalled', isStalled);
 
 }
 
 /* Vom Sprachwechsel aus neu setzen (Text sonst bis zum naechsten Frame
    in der alten Sprache). */
 window.refreshDetectBadge = function () {
-    setDetectBadge(badgeFound, badgeCount, true);
+    setDetectBadge(badgeFound, badgeCount, true, badgeStalled);
 };
 
 
@@ -788,7 +842,7 @@ function renderOverlay() {
         if (window.showMap) drawFaceMap(ctx, lm, sw, sh);
     }
 
-    setDetectBadge(fresh, lm ? lm.length : 0);
+    setDetectBadge(fresh, lm ? lm.length : 0, false, detectStalled());
 
 }
 
@@ -830,10 +884,24 @@ function hidePhotoPreview() {
    oder gerade kein Gesicht erkannt wurde. */
 let guideRaf = null;
 let overlayStaleStamp = 0;
+let stalledRenderAt = 0;
+
+/* Ohne Videogroesse rendert der Loop gar nicht — im Stalled-Zustand muss
+   der Fehlerbadge trotzdem erscheinen (sonst bleibt er eingefroren). */
+function renderStalledOnce() {
+
+    const now = Date.now();
+    if (now - stalledRenderAt < 1000) return;
+    stalledRenderAt = now;
+    renderOverlay();
+
+}
 
 function guideLoop() {
 
     guideRaf = requestAnimationFrame(guideLoop);
+
+    const stalled = detectStalled();
 
     if (window.photoMode) {
         /* Ein Foto ist statisch. Neu zeichnen nur, wenn MediaPipe neue
@@ -842,11 +910,16 @@ function guideLoop() {
         if (stamp && stamp !== overlayStaleStamp) {
             overlayStaleStamp = stamp;
             renderOverlay();
+            return;
         }
+        if (stalled) renderStalledOnce();
         return;
     }
 
-    if (!video.videoWidth || !video.videoHeight) return;
+    if (!video.videoWidth || !video.videoHeight) {
+        if (stalled) renderStalledOnce();
+        return;
+    }
 
     renderOverlay();
 
@@ -1849,15 +1922,16 @@ const MEDIAPIPE_CDN =
     'https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh/';
 
 
-/* Wartet höchstens timeout ms, bis FaceMesh/Camera im Fenster sind. */
+/* Wartet höchstens timeout ms, bis FaceMesh da ist. camera_utils ist
+   optional: fehlt es (z. B. Ad-Blocker blockt die zweite CDN-Datei),
+   faehrt startCameraStream die Kamera mit einem eigenen Send-Loop. */
 function waitForMediaPipe(timeout = 12000) {
 
     return new Promise(
         (resolve, reject) => {
 
             if (
-                typeof window.FaceMesh === 'function' &&
-                typeof window.Camera === 'function'
+                typeof window.FaceMesh === 'function'
             ) {
 
                 resolve(true);
@@ -1870,8 +1944,7 @@ function waitForMediaPipe(timeout = 12000) {
             const tick = setInterval(() => {
 
                 if (
-                    typeof window.FaceMesh === 'function' &&
-                    typeof window.Camera === 'function'
+                    typeof window.FaceMesh === 'function'
                 ) {
 
                     clearInterval(tick);
@@ -1918,6 +1991,8 @@ const MP_FAIL_LIMIT = (window.MP_FAIL_LIMIT !== undefined)
     ? window.MP_FAIL_LIMIT : 60;   /* ~2 s echte Fehlerrate */
 const MP_OK_CLEAR = (window.MP_OK_CLEAR !== undefined)
     ? window.MP_OK_CLEAR : 30;     /* 1 s in Folge ok => Warnung weg */
+const MP_STALL_MS = (window.MP_STALL_MS !== undefined)
+    ? window.MP_STALL_MS : 10000;  /* kein send()-Ruecklauf => Badge rot */
 
 let mpStreamStart = 0;
 let mpFailStreak = 0;
@@ -2146,6 +2221,11 @@ async function initMediaPipe() {
    ============================================================ */
 
 function handleResults(results) {
+
+    /* send() IST zurueckgekommen — auch wenn dieser Frame kein Gesicht
+       liefert. Das ist das Gegenteil von "haengt": detectStalled() braucht
+       diesen Zeitstempel, um einen toten Erkennungs-Loop sichtbar zu machen. */
+    window._resultsAt = Date.now();
 
     /* ------------------------------------------------------------
        QUELLGROESSE — entscheidet ueber die richtigkeit ALLER Quoten
@@ -3369,6 +3449,129 @@ function waitForVideoReady(timeoutMs = 4000) {
 }
 
 
+/* Vorzugspfad: camera_utils (CDN) treibt das Video via Camera.start(). */
+
+async function startWithCameraUtils() {
+
+    const candidate = new window.Camera(
+        video,
+        {
+
+            onFrame: async () => {
+
+                if (!faceMesh) return;
+
+                try {
+
+                    await faceMesh.send({
+                        image: video
+                    });
+
+                    frameStreamOk();
+
+                }
+                catch (e) {
+
+                    /* Ein einzelner fehlgeschlagener Frame darf die
+                       Schleife nicht killen — aber er darf auch nicht
+                       spurlos verschwinden. Zählen, erste Meldung
+                       zeigen (siehe FRAME-DIAGNOSE). */
+
+                    frameStreamFailed(e);
+
+                }
+
+            },
+
+            width: 640,
+
+            height: 480
+
+        }
+    );
+
+    await candidate.start();
+
+    return candidate;
+
+}
+
+
+/* Fallback ohne camera_utils: getUserMedia direkt + rAF-Send-Loop.
+   Wird gebraucht, wenn das zweite CDN-Skript nicht ankommt
+   ("camera_utils did not load"). Liefert den cam-Ersatz (mit stop())
+   und einen begin()-Hook, den startCameraStream erst aufruft, wenn
+   Kamera-Status gesetzt ist und das Video Frames hat. */
+
+async function startWithOwnLoop() {
+
+    const stream = await navigator.mediaDevices.getUserMedia({
+        video: {
+            facingMode: 'user',
+            width: { ideal: 640 },
+            height: { ideal: 480 }
+        },
+        audio: false
+    });
+
+    video.srcObject = stream;
+
+    let alive = false;
+    let raf = 0;
+
+    const stop = () => {
+        alive = false;
+        cancelAnimationFrame(raf);
+        stream.getTracks().forEach((t) => t.stop());
+        if (video.srcObject === stream) video.srcObject = null;
+    };
+
+    /* Ein send() nach dem anderen: zwei gleichzeitige send() stuerzen
+       das WASM-Modul ab ("Module.arguments has been replaced"). */
+
+    const tick = async () => {
+
+        if (!alive) return;
+
+        if (faceMesh && video.videoWidth) {
+
+            try {
+
+                await faceMesh.send({
+                    image: video
+                });
+
+                frameStreamOk();
+
+            }
+            catch (e) {
+
+                frameStreamFailed(e);
+
+            }
+
+        }
+
+        if (alive) raf = requestAnimationFrame(tick);
+
+    };
+
+    return {
+
+        camLike: {
+            stop
+        },
+
+        begin: () => {
+            alive = true;
+            raf = requestAnimationFrame(tick);
+        }
+
+    };
+
+}
+
+
 async function startCameraStream() {
 
     if (isCameraRunning()) return true;
@@ -3376,59 +3579,32 @@ async function startCameraStream() {
 
     cameraStarting = (async () => {
 
-        if (
-            typeof window.Camera !== 'function'
-        ) {
-
-            mediaPipeWarning('camera_utils did not load');
-            return false;
-
-        }
+        let candidate = null;
+        let ownBegin = null;
 
         try {
 
-            const candidate = new window.Camera(
-                video,
-                {
+            if (typeof window.Camera === 'function') {
 
-                    onFrame: async () => {
+                /* Vorzugspfad: camera_utils-Treiber vom CDN. */
 
-                        if (!faceMesh) return;
+                candidate = await startWithCameraUtils();
 
-                        try {
+            }
+            else {
 
-                            await faceMesh.send({
-                                image: video
-                            });
+                /* Fallback ohne camera_utils: die Kamera holen und den
+                   Send-Loop selbst fahren. So startet die Live-Erkennung
+                   auch, wenn der Ad-Blocker die zweite CDN-Datei sperrt. */
 
-                            frameStreamOk();
+                const own = await startWithOwnLoop();
 
-                        }
-                        catch (e) {
+                if (!own) return false;
 
-                            /* Ein einzelner fehlgeschlagener Frame darf
-                               die Schleife nicht killen — aber er darf
-                               auch nicht spurlos verschwinden. Sonst
-                               bleibt bei einem echten Fehler die
-                               Oberflaeche einfach leer, ohne jeden
-                               Hinweis. Zählen, erste Meldung zeigen,
-                               Modell-Download nicht als Fehler werten
-                               (siehe FRAME-DIAGNOSE oben). */
+                candidate = own.camLike;
+                ownBegin = own.begin;
 
-                            frameStreamFailed(e);
-
-                        }
-
-                    },
-
-                    width: 640,
-
-                    height: 480
-
-                }
-            );
-
-            await candidate.start();
+            }
 
             /* Frame-Zähler neu starten: Modell-Download läuft erst ab
                hier mit — Fehler davor dürfen die Warnung nicht triggern
@@ -3490,6 +3666,10 @@ async function startCameraStream() {
             const detail = document.getElementById('mediapipe-note-detail');
             if (detail) detail.textContent = '';
 
+            /* Beim eigenen Loop erst jetzt starten: cam und Status stehen,
+               das Video liefert Frames, und ab hier zaehlen Fehler mit. */
+            if (ownBegin) ownBegin();
+
             return true;
 
         }
@@ -3527,7 +3707,10 @@ window.startCamera = startCameraStream;
 /* MediaPipe laden und — falls erlaubt — die Kamera starten. */
 
 initMediaPipe().then(function (ok) {
-    if (ok) startCameraStream();
+    /* Test-Hook: check_e2e.html setzt das Flag, bevor dieses Skript
+       laeuft. Ein dauerhafter Videostream laesst Chrome mit --dump-dom
+       nie zur Ruhe — der Check schickt deshalb nur ein Foto. */
+    if (ok && !window.AESTRA_NO_AUTO_CAMERA) startCameraStream();
 });
 
 /* ============================================================
@@ -3554,6 +3737,7 @@ window.runFaceMeshOn = (img) => {
 // Analysen-Umstellung auf ein hochgeladenes Bild.
 window.useUploadedPhoto = (img) => {
     window.photoMode = true;
+    window._photoScanAt = Date.now();
     analysisSource = img;
     resetHistory();
     /* Punkte der vorherigen Kamerastunde gehoeren nicht zum neuen Foto —
@@ -3563,13 +3747,14 @@ window.useUploadedPhoto = (img) => {
     window._landmarksAt = 0;
     showPhotoPreview(img);
     if (faceMesh && typeof faceMesh.send === 'function') {
-        faceMesh.send({ image: img });
+        /* Rueckgabe: das send()-Promise. Zwei gleichzeitige send() stuerzen
+           das WASM-Modul ab ("Module.arguments has been replaced") — Aufrufer
+           (Tests, analyse.js) koennen also auf die Antwort warten, statt
+           parallel nachzusenden. */
+        return faceMesh.send({ image: img });
     }
-    else {
-        /* Sonst passiert beim Upload gar nichts und der Nutzer wundert sich,
-           warum das Foto keine Merkmale liefert. */
-        mediaPipeWarning('face-detection library not loaded — the photo cannot be measured yet');
-    }
+    mediaPipeWarning('face-detection library not loaded — the photo cannot be measured yet');
+    return Promise.reject(new Error('face-detection library not loaded'));
 };
 
 /* ============================================================

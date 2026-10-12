@@ -18,7 +18,6 @@
     <link rel="manifest" href="/manifest.json">
     <meta name="theme-color" content="#000000">
     <link rel="icon" type="image/png" sizes="32x32" href="{{ url_for('static', filename='favicon.png') }}">
-    <link rel="icon" type="image/svg+xml" href="{{ url_for('static', filename='icons/logo.svg') }}">
     <link rel="apple-touch-icon" href="{{ url_for('static', filename='icons/apple-touch-icon.png') }}">
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="mobile-web-app-capable" content="yes">
@@ -399,7 +398,12 @@
                 const img = new Image();
                 img.onload = function () {
                     if (typeof window.stopCamera === 'function') window.stopCamera();
-                    if (typeof window.useUploadedPhoto === 'function') window.useUploadedPhoto(img);
+                    if (typeof window.useUploadedPhoto === 'function') {
+                        /* Rueckgabe abfangen: wenn das Modell noch laedt,
+                           liefert das ein abgelehntes Promise — die Warnung
+                           zeigt camera.js ohnehin selbst an. */
+                        Promise.resolve(window.useUploadedPhoto(img)).catch(function () {});
+                    }
                     captureNow();
                     const hint = document.getElementById('scan-hint');
                     if (hint) hint.textContent = '📷 ' + (window.T ? T('beauty.uploadDone') : 'Photo loaded — press INITIALIZE SCAN.');

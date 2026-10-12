@@ -292,7 +292,6 @@
     <link rel="manifest" href="/manifest.json">
     <meta name="theme-color" content="#000000">
     <link rel="icon" type="image/png" sizes="32x32" href="{{ url_for('static', filename='favicon.png') }}">
-    <link rel="icon" type="image/svg+xml" href="{{ url_for('static', filename='icons/logo.svg') }}">
     <link rel="apple-touch-icon" href="{{ url_for('static', filename='icons/apple-touch-icon.png') }}">
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="mobile-web-app-capable" content="yes">
@@ -574,6 +573,7 @@
     </div>
 
 <script src="{{ url_for('static', filename='js/app-ui.js') }}"></script>
+<script src="{{ url_for('static', filename='js/recommender.js') }}"></script>
 <script>
     (function () {
         var isIOS = /iPhone|iPad|iPod/i.test(navigator.userAgent);
@@ -1056,19 +1056,37 @@
         try {
             explanation.innerHTML = "✨ <strong>Stylist is curating your editorial...</strong>";
 
-            // Names PLUS what the AI actually saw in each photo.
-            const closetLines = wardrobe.map(i => {
-                if (i.desc) return `${i.name} — looks: ${i.desc}`;
-                return i.name;
-            }).join(", ");
+            /* ------------------------------------------------------------
+               EIGENES EMPFEHLUNGSMODELL (recommender.js)
+               Das Modell wählt den Look aus dem Bestand: Feature-Vektor
+               + gelernte Gewichte (Training aus Feedback) + Regel-Basis.
+               Gemini ist danach NUR noch der Erzähler des Textes.
+               ------------------------------------------------------------ */
+            const reco = window.AestraReco;
+            let ctxTempC = null;
+            if (weatherInfo) {
+                const isF = /°?f/i.test(weatherInfo.unit || '');
+                ctxTempC = isF ? (weatherInfo.temp - 32) * 5 / 9 : weatherInfo.temp;
+            }
+            const recoCtx = {
+                occasion: occ,
+                style: styleVibe,
+                tempC: ctxTempC,
+                season: reco ? reco.seasonOf(ctxTempC) : undefined
+            };
+            await reco.ensureModel();
 
-            const weatherLine = weatherInfo
-                ? `\nCURRENT WEATHER WHERE THE USER IS: ${weatherInfo.temp}${weatherInfo.unit} (feels like ${weatherInfo.feels}${weatherInfo.unit}), ${weatherInfo.label}${weatherInfo.rain ? ', rain likely' : ''}. WEATHER IS THE #1 DECIDING FACTOR: the outfit MUST be appropriate for ${weatherInfo.temp}${weatherInfo.unit} and ${weatherInfo.label}. Suggested dressing for that temperature: ${weatherInfo.temp <= 5 ? 'heavy winter layers, coat, scarf, boots' : weatherInfo.temp <= 12 ? 'warm layers, jacket, sweater' : weatherInfo.temp <= 18 ? 'light layers, jacket or cardigan' : weatherInfo.temp <= 25 ? 'light clothing, no heavy layers' : 'summer clothing, breathable fabrics'}.`
-                : '';
+            const decision = reco.buildLook(wardrobe, recoCtx);
+            const chosen = decision.chosen;
+            const missing = purchaseMode ? reco.missingBasics(wardrobe, recoCtx) : [];
+            const buyItems = missing.map(m => m.label);
+            const lookLines = chosen.length
+                ? chosen.map(i => `- ${i.name}${i.desc ? ` — looks: ${i.desc}` : ''}`).join("\n")
+                : "- (none owned)";
 
             const useProfile = profileEnabled() && !!window.myProfile;
             const bodyLine = useProfile
-                ? `\nUSER BODY PROFILE: gender=${window.myProfile.gender}, height=${window.myProfile.heightCm} cm, weight=${window.myProfile.weightKg} kg (frame: ${buildLabel(window.myProfile)}). TAILOR EVERY RECOMMENDATION to this: pick lengths, cuts, sleeve lengths and silhouettes that flatter this exact height and build (petite = shorter hems, avoid drowning silhouettes; tall = can carry length and oversized; curvier/fuller = define the waist and choose stretch/comfy cuts), and follow gender-appropriate styling conventions.`
+                ? `\nUSER BODY PROFILE: gender=${window.myProfile.gender}, height=${window.myProfile.heightCm} cm, weight=${window.myProfile.weightKg} kg (frame: ${buildLabel(window.myProfile)}). SHAPE the advice: pick lengths, cuts, sleeve lengths and silhouettes that flatter this exact height and build (petite = shorter hems, avoid drowning silhouettes; tall = can carry length and oversized; curvier/fuller = define the waist and choose stretch/comfy cuts), and follow gender-appropriate styling conventions.`
                 : '';
 
             /* Gesichtsdaten (Beauty Lab): kommt rein, wenn der User dort ein
@@ -1076,120 +1094,116 @@
                Ohrringen, Schals und beim Gesamt-Look. */
             let savedFace = null;
             try { savedFace = JSON.parse(localStorage.getItem('styleai_face') || 'null'); } catch (e) { savedFace = null; }
-            /* Auch das im Beauty Lab gespeicherte Gesichtsprofil gehoert
-               hinter denselben Schalter. Vorher liess sich nur loeschen;
-               einmal gespeichert wurde es bei jedem Outfit mitgeschickt. */
             const faceLine = (useProfile && savedFace && savedFace.features)
                 ? `\nUSER FACE PROFILE (from Beauty Lab analysis): ${JSON.stringify(savedFace.features)}. Use this ONLY where it genuinely matters for styling: neckline direction (e.g. ${String(savedFace.features.face || '').toLowerCase()} face → open necklines frame it better), glasses, earrings, hair framing, hats, scarf placement, and colors that complement ${savedFace.features.tone || 'the skin tone'}. Do not describe the face or the body in the advice — use it silently to make better choices.`
                 : '';
 
-            const tooFewOwned = wardrobe.length < 5;
-            const modeLine = purchaseMode && wardrobe.length === 0
-                ? "MODE: SHOPPING (EMPTY WARDROBE). The user owns no clothes yet. Do NOT show an owned-closet section. Recommend EXACTLY 4 new pieces that form a complete, weather-ready foundation for the occasion + style. Put each new piece on its OWN line starting exactly with \"BUYITEM:\" followed by a short descriptive shoppable phrase, e.g. \"BUYITEM: black wool turtleneck sweater\". Every BUYITEM must describe color + fabric/type so it can be searched in a store."
-                : purchaseMode
-                ? "MODE: SHOPPING. First recommend the best look from items already OWNED (weather first). Then pick EXACTLY 4 new pieces that complete the look for the weather + occasion + style. Put each new piece on its OWN line starting exactly with \"BUYITEM:\" followed by a short descriptive shoppable phrase, e.g. \"BUYITEM: black wool turtleneck sweater\". Every BUYITEM must describe color + fabric/type so it can be searched in a store."
-                : "MODE: OWN CLOSET ONLY. Use ONLY items already in the WARDROBE list. NEVER invent garments you don't own and NEVER recommend buying clothing." + (tooFewOwned ? ` The user has only ${wardrobe.length} items, which is NOT enough for a proper look — your ADVICE hand must explain which pieces are MISSING and how buying 2-3 basics (e.g. a neutral top, jeans, sneakers) would unlock the look, but the OWNED section must still use only real items.` : '');
+            const weatherLine = weatherInfo
+                ? `\nCURRENT WEATHER WHERE THE USER IS: ${weatherInfo.temp}${weatherInfo.unit} (feels like ${weatherInfo.feels}${weatherInfo.unit}), ${weatherInfo.label}${weatherInfo.rain ? ', rain likely' : ''}. WEATHER IS THE #1 DECIDING FACTOR: the outfit MUST be appropriate for ${weatherInfo.temp}${weatherInfo.unit} and ${weatherInfo.label}. Suggested dressing for that temperature: ${weatherInfo.temp <= 5 ? 'heavy winter layers, coat, scarf, boots' : weatherInfo.temp <= 12 ? 'warm layers, jacket, sweater' : weatherInfo.temp <= 18 ? 'light layers, jacket or cardigan' : weatherInfo.temp <= 25 ? 'light clothing, no heavy layers' : 'summer clothing, breathable fabrics'}.`
+                : '';
+
+            const modeExtra = chosen.length === 0
+                ? "MODE: SHOPPING (EMPTY WARDROBE). The user owns no clothes yet. Do not mention owned items."
+                : purchaseMode && missing.length
+                ? "MODE: SHOPPING. The look below was chosen by Aestra's own model from the owned wardrobe. Recommend buying ONLY the MISSING basics listed — never anything else."
+                : purchaseMode && !missing.length
+                ? "MODE: SHOPPING. The owned wardrobe already covers the essentials for this weather — no extra purchase needed. Say so in one short sentence inside the advice."
+                : "MODE: OWN CLOSET. Use ONLY the items in the LOOK list. Never invent garments and never recommend buying anything.";
 
             const prompt = `[INST] <<SYS>>
-            You are a high-end Fashion Editor. 
-            1. WEATHER is the #1 deciding factor. The proposed outfit MUST be wearable for the stated temperature and sky condition before anything else.
-            2. ${modeLine}
-            3. Each item's "looks:" text is what an AI saw in its photo — trust it more than the name when choosing.
-            4. If the user has only one item, start with: "While you only have the [Item Name]..."
-            5. NO roleplaying or fantasy items.
-            6. BODY PROFILE (if present) must shape fit, lengths, sleeve lengths and silhouette.
-            7. FACE PROFILE (if present) is SILENT context: use it to choose necklines, glasses, earrings, hair framing, hats and scarves — never mention the face or body in the ADVICE text.
+            You are a high-end Fashion Editor. Write ONE short advice paragraph starting with "ADVICE:". You must not propose garments beyond the LOOK list, never invent items, never include shopping lists, prices or product names.
+            1. WEATHER is the #1 deciding factor.
+            2. ${modeExtra}
+            3. Each item's "looks:" text is what an AI saw in its photo — trust it more than the name when describing.
+            4. BODY PROFILE (if present) must shape fit, lengths, sleeve lengths and silhouette.
+            5. FACE PROFILE (if present) is SILENT context: use it to choose necklines, glasses, earrings, hair framing, hats and scarves — never mention the face or body in the ADVICE text.
             <</SYS>>
 
-            WARDROBE: ${closetLines}
-            STYLE: ${styleVibe}
             OCCASION: ${occ}
+            STYLE: ${styleVibe}
             ${bodyLine}
             ${faceLine}
             ${weatherLine}
 
-            FORMAT:
-            OWNED: [Items from wardrobe used]
-            ${purchaseMode ? 'BUYITEM: piece no.1\nBUYITEM: piece no.2\nBUYITEM: piece no.3\nBUYITEM: piece no.4' : ''}
-            ADVICE: [Detailed fashion editor paragraph covering weather suitability, color, silhouette] [/INST]`;
+            LOOK (already chosen by the app model):
+            ${lookLines}
+            ${missing.length ? `MISSING (buy only these):\n${missing.map(m => `- ${m.label}`).join("\n")}` : ''}
 
-            let aiResponse = "";
-            // Lokales Modell entfernt -> es läuft immer die Cloud-KI (nächster if).
-            if (!aiResponse.trim()) {
-                explanation.innerHTML = "☁️ <strong>Asking the cloud stylist...</strong>";
-                try {
-                    const cres = await fetch('/api/text-ai', {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({ prompt, plain: true }),
-                        signal: ac.signal
-                    });
-                    const cdata = await cres.json();
-                    if (cdata.key_missing) throw new Error("Cloud AI needs a key: create a .env with GEMINI_API_KEY=your_key and restart the server. (Or use Chrome/Edge with WebGPU for the in-browser AI.)");
-                    if (!cdata.ok || !cdata.text) throw new Error(cdata.error || "Cloud AI failed.");
-                    aiResponse = cdata.text;
-                } catch (e2) {
+            OUTPUT ONLY: ADVICE: [detailed paragraph covering weather suitability, color, silhouette, occasion fit, and ${missing.length ? 'a short note on the missing basics' : 'whether the look covers the essentials for the weather'}][/INST]`;
+
+            /* Der LLM ist jetzt ein reiner Erzähler; ohne KI-Key bleibt
+               die Empfehlung trotzdem vollständig (eigenes Modell). */
+            let advicePart = "";
+            let localNote = "";
+            try {
+                explanation.innerHTML = "☁️ <strong>Writing the advice...</strong>";
+                const cres = await fetch('/api/text-ai', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ prompt, plain: true }),
+                    signal: ac.signal
+                });
+                const cdata = await cres.json();
+                if (cdata.key_missing) throw new Error('__NO_KEY__');
+                if (!cdata.ok || !cdata.text) throw new Error(cdata.error || "Cloud AI failed.");
+                advicePart = cdata.text
+                    .replace(/^ADVICE\s*:\s*/i, "")
+                    .replace(/\*\*/g, "")
+                    .trim();
+            } catch (e2) {
+                if (e2 && e2.message === '__NO_KEY__') {
+                    localNote = " · ✍️ advice by Aestra's own model";
+                } else {
                     throw new Error(e2.message || e2);
                 }
             }
-
-            // Parse sections (label-based, tolerant of spacing)
-            const ownedPart = aiResponse.split(/\bBUY(?:ITEM)?\s*:/i)[0] || "";
-            const buyBlock = aiResponse.split(/\bBUY(?:ITEM)?\s*:/i)[1]?.split(/\bADVICE\s*:/i)[0] || "";
-            const advicePart = aiResponse.split(/\bADVICE\s*:/i)[1] || "No advice provided.";
-
-            // Pull out the shop items line by line.
-            const buyItems = [];
-            aiResponse.split('\n').forEach(line => {
-                const t = line.trim();
-                const m = t.match(/^BUYITEM\s*[:.-]\s*(.+)$/i);
-                if (m) buyItems.push(m[1].replace(/\*/g, '').trim());
-            });
-            if (buyItems.length === 0 && purchaseMode && buyBlock) {
-                buyBlock.split('\n').forEach(line => {
-                    const t = line.replace(/^[-*\d.)\s]+/, '').trim();
-                    if (t && !/^BUY|ADVICE/i.test(t)) buyItems.push(t);
-                });
+            if (!advicePart) {
+                const cats = chosen.map(i => i.cat).filter(Boolean);
+                advicePart = `This look comes from your own wardrobe and fits "${occ}".${cats.length ? ` It combines ${cats.join(', ')}` : ''}${weatherInfo ? ` and works for the current weather (${weatherInfo.temp}${weatherInfo.unit}).` : '.'}${missing.length ? ` Great starters that would complete it: ${missing.map(m => m.label).join('; ')}.` : ''}` + localNote;
             }
 
-            // Filter owned items for display
-            const recommendedItems = wardrobe.filter(item =>
-                ownedPart.toLowerCase().includes(item.name.toLowerCase())
-            );
-
-            if(recommendedItems.length > 0) {
-                outfitDisplay.innerHTML = recommendedItems.map(item => `
+            // Look-Anzeige: nur echte Bestandsteile (Filter durch das Modell).
+            if (chosen.length > 0) {
+                outfitDisplay.innerHTML = chosen.map(item => `
                     <div class="card" style="width: 180px; flex-shrink: 0; border: 2px solid rgba(20,184,166,.4);">
                         <img src="${item.img}" style="height: 140px; object-fit: cover;">
                         <div class="card-info"><h4 style="font-size:14px;">${escHtml(item.name)}</h4></div>
                     </div>
                 `).join('');
             } else {
-                outfitDisplay.innerHTML = "<p style='padding:10px; font-size:12px; color:gray;'>No exact matches from wardrobe found.</p>";
+                outfitDisplay.innerHTML = "<p style='padding:10px; font-size:12px; color:gray;'>No owned items to show yet — switch to Shopping mode to start your capsule.</p>";
             }
 
-            // Clean and Render Text
-            const cleanAdvice = advicePart.replace(/\*\*/g, "").replace(/\[Name\d+\]/g, "").trim();
-            const cleanBuy = purchaseMode ? '' : buyBlock.replace(/\*\*/g, "").trim();
+            // Fürs Feedback-Update merken, was das Modell vorgeschlagen hat.
+            window.lastLookItems = chosen;
+            window.lastLookCtx = recoCtx;
 
+            const infoMissing = reco.missingBasics(wardrobe, recoCtx);
             explanation.innerHTML = `
                 <div style="font-family: 'Georgia', serif; line-height: 1.8; color: var(--text-main);">
                     ${weatherInfo ? `<p style="font-size: 11px; text-transform: uppercase; letter-spacing: 1.5px; color: var(--accent); margin: 0 0 10px 0;">🌡️ Dressed for ${escHtml(weatherInfo.temp)}${escHtml(weatherInfo.unit)} · ${escHtml(weatherInfo.label)}</p>` : ''}
                     <p style="font-size: 16px; font-style: italic; margin-bottom: 25px; border-left: 4px solid var(--accent); padding-left: 15px;">
-                        "${escHtml(cleanAdvice)}"
+                        "${escHtml(advicePart)}"
                     </p>
-                    ${purchaseMode ? '' : `
+                    <div id="reco-feedback" style="margin-top:-6px; margin-bottom:20px; display:flex; gap:10px; align-items:center; font-size:12px; color:var(--text-muted); font-family:var(--font, sans-serif);">
+                        <span>Was this look right for you?</span>
+                        <button onclick="recoFeedback(1)" title="Like — learn this preference" style="border:1px solid var(--border); background:var(--bg); border-radius:50%; width:30px; height:30px; cursor:pointer; font-size:15px;">👍</button>
+                        <button onclick="recoFeedback(0)" title="Dislike — learn this preference" style="border:1px solid var(--border); background:var(--bg); border-radius:50%; width:30px; height:30px; cursor:pointer; font-size:15px;">👎</button>
+                        <span id="reco-feedback-status"></span>
+                    </div>
+                    ${!purchaseMode && infoMissing.length ? `
                     <div style="background: var(--bg); padding: 20px; border-radius: 15px; border: 1px dashed var(--primary);">
                         <h4 style="margin: 0 0 10px 0; font-size: 11px; text-transform: uppercase; letter-spacing: 1.5px; color: var(--muted, var(--text-muted)); font-family: sans-serif;">
-                            🧺 If your wardrobe feels thin${tooFewOwned ? ' — it is a bit small, time to buy' : ''}
+                            🧺 Basics that would unlock more looks
                         </h4>
                         <p style="margin: 0; font-size: 14px; color: var(--text-main); font-family: sans-serif;">
-                            ${escHtml(cleanBuy)}
+                            ${infoMissing.map(m => m.label).join(' · ')}
                         </p>
-                    </div>`}
+                    </div>` : ''}
                 </div>`;
 
-            // In SHOPPING mode, go find real products for each BUYITEM.
+            // In SHOPPING mode: reale Produkte zu den (deterministisch
+            // bestimmten) fehlenden Basics suchen.
             document.getElementById('buy-section').style.display = 'none';
             if (purchaseMode && buyItems.length > 0) {
                 await renderBuyItems(buyItems);
@@ -1208,6 +1222,25 @@
     // "Stop AI": bricht den laufenden Styling-Aufruf ab.
     window.stopAI = () => {
         if (window.aiCtl) window.aiCtl.abort();
+    };
+
+    // Daumen hoch/runter: lernt die Gewichte des eigenen Modells (Training).
+    window.recoFeedback = (liked) => {
+        const items = window.lastLookItems || [];
+        if (!items.length || !window.AestraReco) return;
+        AestraReco.applyFeedback(
+            AestraReco.getModel(),
+            items,
+            window.lastLookCtx || {},
+            liked === 1
+        );
+        const st = document.getElementById('reco-feedback-status');
+        if (st) {
+            st.textContent = liked
+                ? "👍 Learned — looks like this will be recommended more often."
+                : "👎 Learned — similar looks get recommended less often.";
+        }
+        setTimeout(() => { if (st) st.textContent = ''; }, 4500);
     };
 
     // Modals (Neues Item / Fit Profile / Security): Klick auf den dunklen
@@ -1715,6 +1748,11 @@
                     capsuleState = lc;
                     saveCapsule();
                 }
+            }
+
+            // Own recommendation model (gelernte Gewichte vom Server).
+            if (window.AestraReco && AestraReco.ensureModel) {
+                try { await AestraReco.ensureModel(); } catch (e) {}
             }
         } else {
             wardrobe = JSON.parse(localStorage.getItem('styleai_items') || '[]');

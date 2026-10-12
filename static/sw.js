@@ -11,7 +11,7 @@
      Gesichtsanalyse im Offline-Modus sofort scheitern.
    ============================================================ */
 
-const VERSION = '__BUILD__';   // wird beim Bauen durch stamp_sw.py ersetzt
+const VERSION = '7987bb7';
 const SHELL_CACHE = `styleai-shell-${VERSION}`;
 const CDN_CACHE = `styleai-cdn-${VERSION}`;
 const MAX_CDN = 40;
@@ -26,7 +26,6 @@ const SHELL_ASSETS = [
     '/static/js/ai-logic.js',
     '/static/icons/icon-192.png',
     '/static/icons/icon-512.png',
-    '/static/icons/logo.svg',
     '/static/favicon.png',
     '/static/manifest.json'
 ];

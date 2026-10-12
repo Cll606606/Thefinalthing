@@ -57,23 +57,6 @@
 
 <script src="../static/js/i18n.js"></script>
 
-<!-- ECHTE MediaPipe-Bibliothek — NUR im E2E-Modus (?e2e=1).
-     Im Offline-Lauf (Schritt 2) duerfen diese Skripte fehlen: sie
-     laden das WASM-Modell und mehrere MB tflite, und Chrome kommt mit
-     --virtual-time-budget sonst nie zur Ruhe. Genau EIN document.write
-     mit BEIDEN Tags — zweimal (oder doppelt geschrieben) laedt das
-     WASM-Modell zweimal und endet in
-     "Module.arguments has been replaced with plain arguments_". -->
-<script>
-window.__E2E = location.search.indexOf('e2e=1') !== -1;
-if (window.__E2E) {
-    document.write(
-        '<script src="https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh"><\/script>' +
-        '<script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils"><\/script>'
-    );
-}
-</script>
-
 <script>
 /* Schwellen der Frame-Diagnose klein halten: derselbe Codepfad wie im
    Betrieb (Gnadenfrist, Warnung, Zuruecksetzen), nur mit Zahlen, die
@@ -135,19 +118,8 @@ function finalize() {
         LINES.join('\n');
 }
 
-if (window.__E2E) {
-    /* E2E: echtes Modell muss geladen und die Kamera gestartet werden
-       dauert echte Zeit — hier auf das Ergebnis warten (hochzaehlend,
-       mit harter Obergrenze, damit Chrome zurueckkommt). */
-    const t0 = Date.now();
-    (function waitE2E() {
-        if (window.__e2eDone || Date.now() - t0 > 20000) finalize();
-        else setTimeout(waitE2E, 150);
-    })();
-}
-else {
-    setTimeout(finalize, 400);
-}
+setTimeout(finalize, 400);
+
 
 
 /* ------------------------------------------------- synthetisches Gesicht
@@ -454,7 +426,13 @@ check('Status-Punkt: frisch vs. veraltet', () => {
     src.width = 640;
     src.height = 480;
 
-    const keep = { a: analysisSource, p: window.photoMode, lm: window._lastLandmarks };
+    const keep = {
+        a: analysisSource,
+        p: window.photoMode,
+        lm: window._lastLandmarks,
+        res: window._resultsAt,
+        scan: window._photoScanAt
+    };
     analysisSource = src;
     window.photoMode = false;
 
@@ -473,11 +451,98 @@ check('Status-Punkt: frisch vs. veraltet', () => {
     if (el.textContent !== wantOff) throw new Error('veraltet: "' + el.textContent + '" erwartet "' + wantOff + '"');
     if (el.classList.contains('on')) throw new Error('Klasse "on" bleibt');
 
+    /* Fehlerfall: Foto-Scan laeuft, send() kommt NIE zurueck. Frueher blieb
+       der Badge dabei auf dem HTML-Initialtext stehen (Woffener Punkt 6). */
+    window.photoMode = true;
+    window._photoScanAt = Date.now() - MP_STALL_MS - 1000;
+    window._resultsAt = 0;
+    renderOverlay();
+
+    const wantStalled = T('beauty.detectStalled');
+    if (el.textContent !== wantStalled) {
+        throw new Error('stalled: "' + el.textContent + '" erwartet "' + wantStalled + '"');
+    }
+    if (!el.classList.contains('stalled')) throw new Error('Klasse "stalled" fehlt');
+    if (el.classList.contains('on')) throw new Error('Klasse "on" trotz stalled');
+    if (window._stalled !== true) throw new Error('window._stalled nicht gesetzt');
+
+    /* Rueckkehr: Antwort kommt doch => normaler Zustand, Warnzustand weg. */
+    window._resultsAt = Date.now();
+    window._photoScanAt = Date.now();
+    renderOverlay();
+    if (el.classList.contains('stalled')) throw new Error('Klasse "stalled" bleibt');
+    if (window._stalled !== false) throw new Error('window._stalled zurueckgesetzt');
+
     analysisSource = keep.a;
     window.photoMode = keep.p;
     window._lastLandmarks = keep.lm;
     window._landmarksAt = Date.now();
-    return 'frisch = ' + wantOn + ' / veraltet = ' + wantOff;
+    window._resultsAt = keep.res;
+    window._photoScanAt = keep.scan;
+    renderOverlay();
+    return 'frisch = ' + wantOn + ' / veraltet = ' + wantOff + ' / stalled = ' + wantStalled;
+});
+
+check('Stalled-Badge entsteht auch ohne neuen Frame (guideLoop)', () => {
+    /* Genau die alte Luecke: guideLoop rendert im Foto-Modus NUR bei einem
+       neuen stamp. Haengt send(), gibt es nie einen stamp — der Badge blieb
+       dann eingefroren. Dieser Check zwingt den Fehlerfall durch den Loop. */
+    const src = document.createElement('canvas');
+    src.width = 640;
+    src.height = 480;
+
+    const keep = {
+        a: analysisSource,
+        p: window.photoMode,
+        lm: window._lastLandmarks,
+        res: window._resultsAt,
+        scan: window._photoScanAt
+    };
+    const el = document.getElementById('detect-badge');
+
+    analysisSource = src;
+    window.photoMode = true;
+
+    /* Startpunkt: Scan laeuft gerade, Antwort ist da => nicht stalled. */
+    window._photoScanAt = Date.now();
+    window._resultsAt = Date.now();
+    window._lastLandmarks = null;
+    window._landmarksAt = 0;
+    renderOverlay();
+    if (el.classList.contains('stalled')) throw new Error('stalled, obwohl Antwort da ist');
+    if (el.textContent !== T('beauty.detectOff')) {
+        throw new Error('Erwartung SEARCHING, hat: "' + el.textContent + '"');
+    }
+
+    /* Jetzt haengt send(): keine neue Landmarks, keine Antwort seit der
+       Schwelle. Nur der Loop, nicht renderOverlay(), soll es anzeigen. */
+    window._photoScanAt = Date.now() - MP_STALL_MS - 1000;
+    window._resultsAt = 0;
+    guideLoop();
+
+    if (!el.classList.contains('stalled')) {
+        throw new Error('guideLoop hat den Fehlerbadge nicht gesetzt (Text: "' + el.textContent + '")');
+    }
+    if (el.textContent !== T('beauty.detectStalled')) {
+        throw new Error('falscher Stalled-Text: "' + el.textContent + '"');
+    }
+
+    /* Wieder zurueck: Antwort kommt wieder => Normalfall stellt sich her. */
+    window._photoScanAt = Date.now();
+    window._resultsAt = Date.now();
+    window._lastLandmarks = null;
+    renderOverlay();
+    if (el.classList.contains('stalled')) throw new Error('stalled bleibt nach Rueckkehr');
+    if (window._stalled !== false) throw new Error('_stalled nicht zurueckgesetzt');
+
+    analysisSource = keep.a;
+    window.photoMode = keep.p;
+    window._lastLandmarks = keep.lm;
+    window._landmarksAt = Date.now();
+    window._resultsAt = keep.res;
+    window._photoScanAt = keep.scan;
+    renderOverlay();
+    return 'Loop zeigt ' + T('beauty.detectStalled') + ', Rückkehr zeigt ' + T('beauty.detectOff');
 });
 
 check('Landmark-Schalter blendet die Punkte wirklich ab', () => {
@@ -533,7 +598,7 @@ check('Standbild: Foto-Vorschau + Punkte ohne frischen Frame', () => {
 
     const img = new Image();
     img.src = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII=';
-    window.useUploadedPhoto(img);
+    Promise.resolve(window.useUploadedPhoto(img)).catch(() => {});
 
     if (window.photoMode !== true) throw new Error('photoMode nicht gesetzt');
     if (window._lastLandmarks !== null) throw new Error('alte Kamerapunkte nicht verworfen');
@@ -614,156 +679,6 @@ check('Frame-Diagnose: Warnung verschwindet, wenn die Frames laufen', () => {
     return 'nach ' + MP_OK_CLEAR + ' guten Frames weg';
 });
 
-
-/* ============================================================
-   E2E — nur im Modus ?e2e=1 (echte Bibliothek vom CDN)
-   ------------------------------------------------------------
-   Prueft die Kette, die der Nutzer sieht und die im Offline-Modus
-   nie anlaeuft:
-     CDN-FaceMesh -> foto -> handleResults(478 Landmarks)
-     -> renderOverlay -> Status-Punkt + gezeichnete Punkte
-
-   Der Kamerastart selbst ist hier bewusst NICHT Teil des Tests:
-   ein echter Videostrom laesst Chrome mit --dump-dom nie zur
-   Ruhe kommen (virtuelle Zeit haengt an den Frames). Die
-   Frame-Fehler-Logik decken die drei Pruefungen oben ab.
-   ============================================================ */
-
-function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
-
-function inkTotal() {
-    const cv = document.getElementById('face-canvas');
-    const d = cv.getContext('2d').getImageData(0, 0, cv.width, cv.height).data;
-    let n = 0;
-    for (let i = 3; i < d.length; i += 4) if (d[i] > 20) n++;
-    return n;
-}
-
-async function runE2E() {
-
-    try {
-
-        if (!window.__E2E) return;
-        console.log('E2E Schritt 1: Start');
-
-        if (typeof window.FaceMesh !== 'function') {
-            pass('E2E: MediaPipe-Bibliothek vom CDN', 'uebersprungen (CDN nicht erreichbar)');
-            return;
-        }
-        pass('E2E: MediaPipe-Bibliothek vom CDN', 'FaceMesh da');
-
-        /* camera.js ruft initMediaPipe() beim Laden SELBST auf (Zeile
-           am Dateiende). Wer hier noch einmal new FaceMesh(...) bildet,
-           laedt das WASM-Modell zweimal und erntet
-           "Module.arguments has been replaced with plain arguments_" —
-           also: warten, bis die Eigeninitialisierung fertig ist, und
-           nur bei Misserfolg selbst nachlegen. */
-        let ready = !!window.mediapipeReady;
-
-        for (let i = 0; i < 80 && !ready; i++) {
-            await sleep(250);
-            ready = !!window.mediapipeReady;
-        }
-
-        if (!ready) {
-
-            const engine = await initMediaPipe();
-            if (!engine) throw new Error('initMediaPipe: ' + (window.mediapipeError || 'unbekannt'));
-
-        }
-
-        console.log('E2E Schritt 2: mediapipeReady=' + ready);
-        /* Der Kamerastart von camera.js liefert hier ein Dauer-Video —
-           solange Frames laufen, kommt Chrome mit --dump-dom nie zur
-           Ruhe (virtuelle Zeit laeuft nicht ab). Der E2E-Test prueft
-           den FOTO-Pfad, also Kamera hier bewusst anhalten. */
-        try { window.stopCamera(); } catch (e) { /* egal */ }
-
-        /* --- echtes Gesichtsfoto -> echte Landmarks ------------------ */
-        const img = new Image();
-
-        const loaded = await new Promise(res => {
-            img.onload = () => res(true);
-            img.onerror = () => res(false);
-            img.src = 'face-fixture.png';
-        });
-
-        if (!loaded) {
-            pass('E2E: Landmarks auf echtem Foto',
-                'uebersprungen (kein tools/face-fixture.png)');
-            return;
-        }
-
-        /* useUploadedPhoto setzt analysisSource (die Quelle, aus der
-           handleResults die Groesse nimmt) und schickt das Bild das
-           erste Mal. Das Modell (WASM + tflite, mehrere MB) laedt aber
-           erst beim ersten send() nach — ein einziger Versuch landet
-           dann im Fehler aus dem Screenshot ("cannot read buffer",
-           "still waiting on run dependencies"). Deshalb erneut
-           schicken, bis die Landmarks da sind. */
-        window.useUploadedPhoto(img);
-
-        console.log('E2E Schritt 3: Foto laden, letzter Fehler bislang: ' + (window.mediapipeError || '-'));
-        let lm = null;
-        let lastErr = '';
-
-        for (let i = 0; i < 60 && !lm; i++) {
-
-            if (i > 0) {
-
-                try {
-                    await window.runFaceMeshOn(img);
-                }
-                catch (e) {
-                    lastErr = (e && e.message) ? e.message : String(e);
-                }
-
-            }
-
-            lm = window._lastLandmarks;
-            if (!lm) await sleep(250);
-
-        }
-
-        console.log('E2E Schritt 4: lm=' + (lm ? lm.length : 'null'));
-        if (!lm || !lm.length) {
-            throw new Error('keine Landmarks vom echten Foto' +
-                (lastErr ? ' (letzter Fehler: ' + lastErr + ')' : ''));
-        }
-
-        window.showGuide = false;
-        window.showMap = false;
-        window.showLandmarks = true;
-        window.photoMode = true;
-        renderOverlay();
-
-        const badge = document.getElementById('detect-badge');
-        const label = badge ? badge.textContent.trim() : '';
-
-        if (label.indexOf(String(lm.length)) === -1) {
-            throw new Error('Status-Punkt zeigt nicht die Punktzahl: "' + label + '"');
-        }
-
-        const ink = inkTotal();
-        if (ink < 50) throw new Error('zu wenig Pixel gezeichnet: ' + ink);
-
-        const note = document.getElementById('mediapipe-note');
-        if (note && note.style.display === 'block') {
-            throw new Error('Warnung sichtbar: ' +
-                (note.textContent || '').trim().replace(/\s+/g, ' ').slice(0, 140));
-        }
-
-        pass('E2E: Landmarks auf echtem Foto',
-            lm.length + ' Punkte, Status "' + label + '", ' + ink + ' Pixel');
-
-    }
-    catch (e) {
-        fail('E2E: echte MediaPipe-Pipeline', (e && e.message) || e);
-    }
-
-}
-
-runE2E().then(() => { window.__e2eDone = true; });
 
 </script>
 </body>

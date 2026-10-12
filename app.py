@@ -1,6 +1,7 @@
 import base64
 import io
 import json
+import math
 import os
 import sys
 import re
@@ -257,6 +258,12 @@ def _init_db():
             data TEXT,
             FOREIGN KEY (user_id) REFERENCES users(id)
         );
+        CREATE TABLE IF NOT EXISTS reco_model (
+            user_id INTEGER PRIMARY KEY,
+            data TEXT NOT NULL,
+            updated_at TEXT DEFAULT (datetime('now')),
+            FOREIGN KEY (user_id) REFERENCES users(id)
+        );
         """
     )
     # Upgrade legacy databases: add security-question columns if missing.
@@ -326,7 +333,7 @@ def _security_headers(resp):
     resp.headers["Referrer-Policy"] = "no-referrer"
     resp.headers["Content-Security-Policy"] = (
         "default-src 'self'; "
-        "script-src 'self' 'unsafe-inline' "
+        "script-src 'self' 'unsafe-inline' 'unsafe-eval' "
         "https://cdn.jsdelivr.net https://www.youtube.com https://www.youtube-nocookie.com; "
         "style-src 'self' 'unsafe-inline'; "
         "img-src * data: blob:; "
@@ -932,6 +939,7 @@ def api_account_delete():
     db.execute("DELETE FROM wardrobe WHERE user_id = ?", (uid,))
     db.execute("DELETE FROM profile WHERE user_id = ?", (uid,))
     db.execute("DELETE FROM capsule WHERE user_id = ?", (uid,))
+    db.execute("DELETE FROM reco_model WHERE user_id = ?", (uid,))
     db.execute("DELETE FROM users WHERE id = ?", (uid,))
     db.commit()
     db.close()
@@ -1032,6 +1040,68 @@ def api_capsule_set():
         "INSERT INTO capsule (user_id, data) VALUES (?, ?) "
         "ON CONFLICT(user_id) DO UPDATE SET data = excluded.data",
         (uid, json.dumps(state)),
+    )
+    db.commit()
+    db.close()
+    return jsonify({"ok": True})
+
+
+# ============================================================
+#   OWN RECOMMENDATION MODEL  (gelerntes Präferenzmodell)
+#   Der Browser (recommender.js) berechnet Score, Rangfolge und
+#   Look und schickt nur die gelernten Gewichtsoffsets zur Ablage.
+#   Hier wird pro Konto gespeichert, was über Feedback gelernt wurde.
+# ============================================================
+
+@app.route("/api/reco/prefs", methods=["GET"])
+@api_login_required
+def api_reco_prefs_get():
+    db = _get_db()
+    row = db.execute(
+        "SELECT data FROM reco_model WHERE user_id = ?", (session["uid"],)
+    ).fetchone()
+    db.close()
+    return jsonify({"ok": True, "model": json.loads(row["data"]) if row else None})
+
+
+@app.route("/api/reco/prefs", methods=["POST"])
+@api_login_required
+def api_reco_prefs_set():
+    d = request.get_json(silent=True) or {}
+    model = d.get("model")
+    if not isinstance(model, dict):
+        return jsonify({"ok": False, "error": "Expected { model: { weights, meta } }"}), 400
+    weights = model.get("weights")
+    meta = model.get("meta")
+    if not isinstance(weights, dict) or not isinstance(meta, dict):
+        return jsonify({"ok": False, "error": "model needs weights and meta objects"}), 400
+    if not _rate_check("reco:" + _client_ip(), limit=60, window_s=120):
+        return jsonify({"ok": False, "error": "Too many model updates. Slow down."}), 429
+    # Nur endliche Zahlen übernehmen, Größe und Schlüssel begrenzen.
+    clean = {}
+    for key, val in weights.items():
+        if len(clean) >= 20000:
+            break
+        if not isinstance(key, str) or len(key) > 128:
+            continue
+        try:
+            num = float(val)
+        except (TypeError, ValueError):
+            continue
+        if math.isfinite(num):
+            clean[key] = round(num, 4)
+    if not clean:
+        return jsonify({"ok": False, "error": "no usable weights"}), 400
+    meta_clean = {
+        str(k)[:32]: v
+        for k, v in meta.items()
+        if isinstance(k, (str, int)) and not isinstance(k, bool)
+    }
+    db = _get_db()
+    db.execute(
+        "INSERT INTO reco_model (user_id, data, updated_at) VALUES (?, ?, datetime('now')) "
+        "ON CONFLICT(user_id) DO UPDATE SET data = excluded.data, updated_at = excluded.updated_at",
+        (session["uid"], json.dumps({"weights": clean, "meta": meta_clean})),
     )
     db.commit()
     db.close()

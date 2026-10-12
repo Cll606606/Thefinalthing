@@ -1,0 +1,216 @@
+<!doctype html>
+<!-- ============================================================
+  Browser-Check: Live-Kamera OHNE camera_utils
+
+  Aufruf:  tools/run_checks.sh   (Schritt 2c)
+
+  Szenario: Der Ad-Blocker blockt die zweite CDN-Datei
+  (@mediapipe/camera_utils) — window.Camera ist NIE da, wohl aber
+  window.FaceMesh. Frueher faehrten Liv-Erkennung und Kamera dann
+  tot ("camera_utils did not load", kein Gesicht, nur noch Upload).
+  Seit dem Fix laeuft startCameraStream mit getUserMedia + eigenem
+  rAF-Send-Loop. Diese Seite prueft das an der ECHTEN camera.js:
+  FaceMesh und Kamera-Aufrufe sind Stubs, damit der Test ohne Netz
+  und ohne Kamera-Hardware deterministisch laeuft.
+  ============================================================ -->
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<title>Aestra Check: Kamera ohne camera_utils</title>
+</head>
+<body>
+
+<style>
+    #face-canvas { position: absolute; top: 0; left: 0; width: 300px; height: 400px; }
+    #photo-preview { display: none; }
+    #detect-badge { padding: 4px 8px; }
+</style>
+<video id="video"></video>
+<img id="photo-preview" alt="">
+<canvas id="face-canvas" width="480" height="640"></canvas>
+<div id="detect-badge">init</div>
+<div id="live-metrics" style="display:none"></div>
+<div id="live-metrics-rows"></div>
+<div id="mediapipe-note" style="display:none"></div>
+<div id="mediapipe-note-detail"></div>
+<div id="trend-panel" style="display:none">
+    <b data-i18n="m.trend">Measurement trend</b>
+    <canvas id="trend-canvas"></canvas>
+</div>
+<button id="guide-btn"><span id="guide-label">Guide</span></button>
+<button id="map-btn"><span id="map-label">Map</span></button>
+<button id="landmark-btn"><span id="landmark-label">Landmarks</span></button>
+<div class="chip-container" id="ai-model-chips"></div>
+<div class="chip-container" id="mode-chips">
+    <button class="chip-alt" data-pick="mode" id="chip-quick">quick</button>
+    <button class="chip-alt picked" data-pick="mode" id="chip-standard">standard</button>
+</div>
+<input id="manual-face"><input id="manual-eyes"><input id="manual-eyeTilt">
+<input id="manual-lips"><input id="manual-brows"><input id="manual-cheekbones">
+<input id="manual-tone">
+<div id="ai-summary"></div>
+<pre id="out" style="white-space:pre-wrap;font:12px/1.5 ui-monospace,Menlo,monospace"></pre>
+
+<script src="../static/js/i18n.js"></script>
+
+<script>
+/* ---------------------------------------------------------- Szenario
+   Ad-Blocker-Situation nachbauen: window.Camera fehlt, FaceMesh ist
+   da. FaceMesh-Stub und Kamera/Video-Fakes lassen die ECHTE
+   startCameraStream()-Kette deterministisch durchlaufen. */
+
+const fakeTrack = {
+    stopped: false,
+    stop() { this.stopped = true; }
+};
+
+const fakeStream = {
+    getTracks: () => [fakeTrack],
+    getVideoTracks: () => [fakeTrack]
+};
+
+window.__sent = 0;
+window.__gumCalls = 0;
+
+/* FaceMesh-Stub: initMediaPipe + der Send-Loop der camera.js laufen
+   damit echt durch, send() zaehlt Frames. */
+window.FaceMesh = class {
+    onResults() {}
+    send() {
+        window.__sent++;
+        return Promise.resolve({ multiFaceLandmarks: [] });
+    }
+};
+
+/* Fake-Video: play() liefert sofort Groesse (waitForVideoReady ist
+   erledigt). style muss es geben — hidePhotoPreview greift darauf zu. */
+const fakeVideo = {
+    srcObject: null,
+    videoWidth: 0,
+    videoHeight: 0,
+    muted: false,
+    playsInline: false,
+    width: 0,
+    height: 0,
+    style: {},
+    play() {
+        this.videoWidth = 640;
+        this.videoHeight = 480;
+        return Promise.resolve();
+    },
+    pause() {}
+};
+
+const _origGetById = document.getElementById.bind(document);
+document.getElementById = (id) => (id === 'video' ? fakeVideo : _origGetById(id));
+
+Object.defineProperty(navigator, 'mediaDevices', {
+    configurable: true,
+    value: {
+        getUserMedia: async () => {
+            window.__gumCalls++;
+            return fakeStream;
+        }
+    }
+});
+</script>
+<script src="../static/js/camera.js"></script>
+
+<script>
+/* ---------------------------------------------------------- Pruefungen */
+const LINES = [];
+const PASS = (name) => LINES.push('PASS ' + name);
+const FAIL = (name, detail) => LINES.push('FAIL ' + name + (detail ? ' | ' + detail : ''));
+
+const waitUntil = (fn, ms) =>
+    new Promise((resolve) => {
+        const t0 = Date.now();
+        const tick = () => {
+            if (fn()) return resolve(true);
+            if (Date.now() - t0 > ms) return resolve(false);
+            setTimeout(tick, 40);
+        };
+        tick();
+    });
+
+(async function run() {
+
+    /* 0. Szenario-Vorbedingung: kein camera_utils im Fenster. */
+    if (typeof window.Camera === 'function') {
+        FAIL('Szenario-Fehlaufbau', 'window.Camera vorhanden — Fallback wird nicht getestet');
+        document.getElementById('out').textContent = LINES.join('\n');
+        return;
+    }
+    PASS('Voraussetzung: window.Camera fehlt (camera_utils blockiert)');
+
+    /* 1. initMediaPipe darf jetzt OHNE Camera ok sein. */
+    const engine = await window.initMediaPipe();
+    if (engine === true && window.mediapipeReady === true) {
+        PASS('initMediaPipe ok ohne camera_utils (faceMesh da)');
+    } else {
+        FAIL('initMediaPipe ok ohne camera_utils', 'engine=' + engine + ' mediapipeReady=' + window.mediapipeReady);
+    }
+
+    /* 2. Kamerastart muss ueber den eigenen Loop durchlaufen. */
+    const started = await window.startCamera();
+    if (started === true) {
+        PASS('startCameraStream liefert true (Fallback-Loop)');
+    } else {
+        FAIL('startCameraStream liefert true (Fallback-Loop)', 'result=' + started + ' err=' + window.cameraError);
+    }
+
+    const active = await waitUntil(() => window.cameraActive === true, 4000);
+    if (active) {
+        PASS('cameraActive=true nach Start (eigener Loop aktiv)');
+    } else {
+        FAIL('cameraActive=true nach Start', 'cameraError=' + window.cameraError);
+    }
+
+    /* 3. getUserMedia wurde ueber den Fallback genutzt. */
+    if (window.__gumCalls >= 1) {
+        PASS('getUserMedia im eigenen Loop verwendet');
+    } else {
+        FAIL('getUserMedia im eigenen Loop verwendet', 'Calls=' + window.__gumCalls);
+    }
+
+    /* 4. Der Send-Loop speist Frames in faceMesh.send. */
+    const frames = await waitUntil(() => window.__sent >= 2, 4000);
+    if (frames) {
+        PASS('FaceMesh.send erhaelt Live-Frames (gesendet=' + window.__sent + ')');
+    } else {
+        FAIL('FaceMesh.send erhaelt Live-Frames', 'gesendet=' + window.__sent);
+    }
+
+    /* 5. Keine Startfehler-Warnung wegen fehlendem camera_utils. */
+    const note = document.getElementById('mediapipe-note');
+    if (note && note.style.display !== 'block') {
+        PASS('keine Warnung "camera_utils did not load"');
+    } else {
+        FAIL('keine Warnung "camera_utils did not load"',
+            'note.display=' + (note && note.style.display) +
+            (note && note.style.display === 'block'
+                ? ' — detail: ' + document.getElementById('mediapipe-note-detail').textContent
+                : ''));
+    }
+
+    /* 6. stopCamera stoppt Stream-Tracks und Loop. */
+    const sentBefore = window.__sent;
+    window.stopCamera();
+    await new Promise((r) => setTimeout(r, 150));
+    const stopped = fakeTrack.stopped === true;
+    const noMoreSends = window.__sent === sentBefore;
+    if (stopped && noMoreSends) {
+        PASS('stopCamera stoppt Stream-Tracks und Loop');
+    } else {
+        FAIL('stopCamera stoppt Stream-Tracks und Loop',
+            'track.stopped=' + fakeTrack.stopped + ' nach+vor=' + window.__sent + '/' + sentBefore);
+    }
+
+    const out = document.getElementById('out');
+    out.textContent = LINES.join('\n');
+    const fails = LINES.filter((l) => l.startsWith('FAIL')).length;
+    console.log(LINES.length + ' Pruefungen: ' + (LINES.length - fails) + ' PASS, ' + fails + ' FAIL');
+})();
+</script>
+</body>
+</html>
