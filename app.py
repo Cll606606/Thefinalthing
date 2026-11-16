@@ -129,13 +129,27 @@ GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY", "")
 #   lokal:  Zeile GEMINI_API_KEY=... in der .env (steht in .gitignore)
 #   online: Environment Variable im Dashboard des Anbieters
 # WICHTIG: Der Modellname muss exakt zu einem Modell passen, das der Key
-# tatsaechlich nutzen darf. "gemini-3.6-flash" existiert nicht (404/503),
-# und aeltere Modelle wie gemini-2.5-flash sind fuer neue Keys gesperrt
-# ("no longer available to new users"). Deshalb: Liste von alt nach neu,
-# der erste funktionierende Eintrag gewinnt (siehe _gemini_call).
+# tatsaechlich nutzen darf. Google bietet je nach Konto/Schluessel
+# unterschiedliche Modellnamen an; ein einzelner hartkodierter Name fuehrte
+# dazu, dass Aufrufe mit 404 ins Leere liefen und JEDE KI-Funktion
+# (Frisuren, Outfits, Produktbeschreibung) fehlschlug. Jetzt: eine breite
+# Fallback-Kette aus beiden Modellfamilien, der erste funktionierende
+# Eintrag gewinnt (siehe _gemini_call). Ueber GEMINI_MODEL
+# (kommasepariert) anpassbar.
 GEMINI_MODELS = [
     m.strip() for m in os.environ.get(
-        "GEMINI_MODEL", "gemini-3.8-flash,gemini-3.5-flash,gemini-3-flash-preview"
+        # Breite Fallback-Kette aus BEIDEN Modellfamilien, die Google aktuell
+        # anbietet: die "gemini-2.5/2.0/1.5"-Familie (AI-Studio-Standard-
+        # Schluessel) UND die "gemini-3.x"-Familie (neuere Schluessel). Nicht
+        # existierende Namen werden von _gemini_call mit 404 uebersprungen,
+        # der erste funktionierende Eintrag gewinnt. So funktioniert die KI
+        # unabhaengig davon, welchen Schluessel/Account der Nutzer hat.
+        # Ueberschreibbar ueber die Umgebungsvariable GEMINI_MODEL.
+        "GEMINI_MODEL",
+        "gemini-3.8-flash,gemini-3.7-flash,gemini-3.6-flash,"
+        "gemini-3.5-flash,gemini-3.5-flash-lite,gemini-3.1-flash-lite,"
+        "gemini-3-flash-preview,gemini-2.5-flash,gemini-2.0-flash,"
+        "gemini-1.5-flash"
     ).split(",") if m.strip()
 ]
 GEMINI_MODEL = GEMINI_MODELS[0]
@@ -220,8 +234,16 @@ _SSL_PRESENT = os.path.exists(_SSL_CERT) and os.path.exists(_SSL_KEY)
 # ============================================================
 
 def _get_db():
-    db = sqlite3.connect(DB_PATH)
+    # WAL-Modus + Busy-Timeout: mehrere gunicorn-Worker/Threads koennen
+    # gleichzeitig lesen/schreiben, ohne dass "database is locked" auftaucht.
+    db = sqlite3.connect(DB_PATH, timeout=30)
     db.row_factory = sqlite3.Row
+    try:
+        db.execute("PRAGMA journal_mode=WAL")
+        db.execute("PRAGMA busy_timeout=30000")
+        db.execute("PRAGMA synchronous=NORMAL")
+    except sqlite3.Error:
+        pass
     return db
 
 
@@ -1188,7 +1210,7 @@ def _gemini_call(payload, *, label="text", prefer=None):
                f"{model}:generateContent")
         try:
             resp = requests.post(url, params={"key": GEMINI_API_KEY},
-                                 json=payload, timeout=90, verify=_VERIFY)
+                                 json=payload, timeout=60, verify=_VERIFY)
         except Exception as exc:  # Netzwerk, TLS, Timeout
             last = f"{model}: {type(exc).__name__}"
             continue
@@ -1200,7 +1222,7 @@ def _gemini_call(payload, *, label="text", prefer=None):
             except Exception:
                 api_msg = ""
             last = f"{model}: HTTP {resp.status_code} {_scrub(api_msg)[:160]}"
-            # 400/404 heisst meist "falsches Modell" -> naechstes probieren
+            # 400/404/503/429 heisst "naechstes Modell probieren"
             continue
 
         try:
@@ -1477,7 +1499,13 @@ def api_search():
     if kind not in ("shopping", "videos", "images"):
         return jsonify({"ok": False, "error": "Unknown search type."}), 400
     if not SERPER_API_KEY:
-        return jsonify({"ok": False, "error": "Server has no SERPER_API_KEY configured."}), 200
+        return jsonify({
+            "ok": False,
+            "error": "Server has no SERPER_API_KEY configured. "
+                    "Add SERPER_API_KEY in the Render dashboard (Environment) "
+                    "and restart the service, otherwise product/video search "
+                    "stays disabled."
+        }), 200
 
     try:
         resp = requests.post(
@@ -1508,7 +1536,14 @@ def api_search():
             if not link:
                 continue
             price = it.get("price")
-            price = float(re.sub(r"[^0-9.]", "", str(price))) if price else None
+            if price is None or price == "":
+                price = None
+            else:
+                cleaned = re.sub(r"[^0-9.]", "", str(price))
+                try:
+                    price = float(cleaned) if cleaned else None
+                except ValueError:
+                    price = None
             if price is None:
                 continue  # nur wirklich kaufbare Artikel mit Preis
             items.append({

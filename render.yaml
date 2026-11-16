@@ -36,10 +36,12 @@ services:
         value: "0.0.0.0"
       - key: FORCE_SECURE_COOKIES
         value: "1"
-      # Ohne Plattenlauf (free) ist dieser Pfad nur ein Wunsch: die App
-      # legt ihn an, kann dort aber nichts dauerhaft halten.
-      - key: DATABASE_PATH
-        value: /data/styleai.db
+      # Auf dem kostenlosen Plan gibt es keinen Plattenlauf: /data ist dort
+      # nicht beschreibbar, die App weicht automatisch auf ihr eigenes
+      # Verzeichnis aus. Fuer den Dauerbetrieb (plan: starter + disk:) hier
+      # den Pfad auf /data/styleai.db setzen.
+      # - key: DATABASE_PATH
+      #   value: /data/styleai.db
       # Beide Schluessel NICHT hier eintragen — Render wuerde sie dann
       # im Klartext im YAML speichern. Stattdessen die Zeilen aktivieren
       # und die Werte im Dashboard eintragen (sync: false = Secret).

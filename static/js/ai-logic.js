@@ -494,7 +494,9 @@ async function fetchLiveProducts(data) {
 
     } catch (err) {
         console.error("Shopping API error:", err);
-        list.innerHTML = "<p style='text-align:center;'>Product search failed. Check your API key and connection.</p>";
+        list.innerHTML = "<p style='text-align:center;'>Product search failed. "
+            + "Make sure SERPER_API_KEY is set on the server (Render dashboard) "
+            + "and that you are online, then retry.</p>";
     }
 }
 

@@ -653,7 +653,7 @@
     }
 
     function saveWardrobe() {
-        localStorage.setItem('styleai_items', JSON.stringify(wardrobe));
+        try { localStorage.setItem('styleai_items', JSON.stringify(wardrobe)); } catch (e) { /* Quota */ }
         if (window.loggedIn) apiPost('/api/wardrobe', { items: wardrobe }).catch(() => {});
     }
     /* ------------------------------------------------------------
@@ -682,15 +682,15 @@
     };
 
     function persistProfile() {
-        localStorage.setItem('styleai_profile', JSON.stringify(window.myProfile));
+        try { localStorage.setItem('styleai_profile', JSON.stringify(window.myProfile)); } catch (e) {}
         if (window.loggedIn) apiPost('/api/profile', { profile: window.myProfile }).catch(() => {});
     }
     function clearProfileStorage() {
-        localStorage.removeItem('styleai_profile');
+        try { localStorage.removeItem('styleai_profile'); } catch (e) {}
         if (window.loggedIn) apiPost('/api/profile', { profile: null }).catch(() => {});
     }
     function saveCapsule() {
-        localStorage.setItem('styleai_capsule', JSON.stringify(capsuleState));
+        try { localStorage.setItem('styleai_capsule', JSON.stringify(capsuleState)); } catch (e) {}
         if (window.loggedIn) apiPost('/api/capsule', { state: capsuleState }).catch(() => {});
     }
 
@@ -1712,43 +1712,52 @@
             userEl.textContent = '👤 ' + window.userName;
 
             // Wardrobe: server wins; migrate this browser's old localStorage if account is empty.
-            const sw = await (await fetch('/api/wardrobe')).json();
-            if (sw.ok && sw.items.length) {
-                wardrobe = sw.items;
-                localStorage.setItem('styleai_items', JSON.stringify(wardrobe));
-            } else {
-                const local = JSON.parse(localStorage.getItem('styleai_items') || '[]');
-                if (local.length) {
-                    wardrobe = local;
-                    saveWardrobe();
+            try {
+                const swRes = await fetch('/api/wardrobe');
+                const sw = await swRes.json().catch(() => ({ ok: false }));
+                if (sw.ok && Array.isArray(sw.items) && sw.items.length) {
+                    wardrobe = sw.items;
+                    try { localStorage.setItem('styleai_items', JSON.stringify(wardrobe)); } catch (e) {}
+                } else {
+                    const local = JSON.parse(localStorage.getItem('styleai_items') || '[]');
+                    if (local.length) {
+                        wardrobe = local;
+                        saveWardrobe();
+                    }
                 }
-            }
+            } catch (e) { /* keep local */ }
 
             // Fit profile
-            const sp = await (await fetch('/api/profile')).json();
-            if (sp.ok && sp.profile) {
-                window.myProfile = sp.profile;
-                localStorage.setItem('styleai_profile', JSON.stringify(sp.profile));
-            } else {
-                const lp = JSON.parse(localStorage.getItem('styleai_profile') || 'null');
-                if (lp) {
-                    window.myProfile = lp;
-                    persistProfile();
+            try {
+                const spRes = await fetch('/api/profile');
+                const sp = await spRes.json().catch(() => ({ ok: false }));
+                if (sp.ok && sp.profile) {
+                    window.myProfile = sp.profile;
+                    try { localStorage.setItem('styleai_profile', JSON.stringify(sp.profile)); } catch (e) {}
+                } else {
+                    const lp = JSON.parse(localStorage.getItem('styleai_profile') || 'null');
+                    if (lp) {
+                        window.myProfile = lp;
+                        persistProfile();
+                    }
                 }
-            }
+            } catch (e) { /* keep local */ }
 
             // Capsule progress
-            const sc = await (await fetch('/api/capsule')).json();
-            if (sc.ok && Object.keys(sc.state).length) {
-                capsuleState = sc.state;
-                localStorage.setItem('styleai_capsule', JSON.stringify(capsuleState));
-            } else {
-                const lc = JSON.parse(localStorage.getItem('styleai_capsule') || '{}');
-                if (Object.keys(lc).length) {
-                    capsuleState = lc;
-                    saveCapsule();
+            try {
+                const scRes = await fetch('/api/capsule');
+                const sc = await scRes.json().catch(() => ({ ok: false }));
+                if (sc.ok && sc.state && Object.keys(sc.state).length) {
+                    capsuleState = sc.state;
+                    try { localStorage.setItem('styleai_capsule', JSON.stringify(capsuleState)); } catch (e) {}
+                } else {
+                    const lc = JSON.parse(localStorage.getItem('styleai_capsule') || '{}');
+                    if (Object.keys(lc).length) {
+                        capsuleState = lc;
+                        saveCapsule();
+                    }
                 }
-            }
+            } catch (e) { /* keep local */ }
 
             // Own recommendation model (gelernte Gewichte vom Server).
             if (window.AestraReco && AestraReco.ensureModel) {
