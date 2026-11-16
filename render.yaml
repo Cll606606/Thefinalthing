@@ -6,12 +6,9 @@ services:
   - type: web
     name: my-style
     runtime: python
-    # TESTWEG: kostenlos. Render haengt Plattenlaeufe ausschliesslich an
-    # bezahlte Instanzen — auf "free" ist die SQLite-Datei nach jedem
-    # Neustart weg. Fuer den Dauerbetrieb spaeter zwei Aenderungen:
-    #   1) plan: starter
-    #   2) den Block "disk:" unten aktivieren
-    plan: free
+    # Dauerbetrieb: Starter-Plan mit Festplatte. Auf "free" ist die
+    # SQLite-Datei nach jedem Neustart weg (Konten gehen verloren).
+    plan: starter
     region: frankfurt   # eu-central, nah bei dir
     branch: main
     # stamp_sw.py setzt die Cache-Version des Service Workers auf den
@@ -40,8 +37,8 @@ services:
       # nicht beschreibbar, die App weicht automatisch auf ihr eigenes
       # Verzeichnis aus. Fuer den Dauerbetrieb (plan: starter + disk:) hier
       # den Pfad auf /data/styleai.db setzen.
-      # - key: DATABASE_PATH
-      #   value: /data/styleai.db
+      - key: DATABASE_PATH
+        value: /data/styleai.db
       # Beide Schluessel NICHT hier eintragen — Render wuerde sie dann
       # im Klartext im YAML speichern. Stattdessen die Zeilen aktivieren
       # und die Werte im Dashboard eintragen (sync: false = Secret).
@@ -50,8 +47,9 @@ services:
       - key: SERPER_API_KEY
         sync: false
 
-    # >>> FUER DEN DAUERBETRIEB AKTIVIEREN (nur mit plan: starter) <<<
-    # disk:
-    #   name: my-style-data
-    #   mountPath: /data
-    #   sizeGB: 1
+    # Persistenter Speicher fuer die Datenbank (Konten, Kleiderschrank).
+    # Nur mit plan: starter moeglich.
+    disk:
+      name: my-style-data
+      mountPath: /data
+      sizeGB: 1
