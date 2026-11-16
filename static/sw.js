@@ -24,9 +24,9 @@ const SHELL_ASSETS = [
     '/static/js/app-ui.js',
     '/static/js/camera.js',
     '/static/js/ai-logic.js',
-    '/static/icons/icon-192.png',
-    '/static/icons/icon-512.png',
-    '/static/favicon.png',
+    '/static/icons/icon-192.png?v=2',
+    '/static/icons/icon-512.png?v=2',
+    '/static/favicon.png?v=2',
     '/static/manifest.json'
 ];
 
